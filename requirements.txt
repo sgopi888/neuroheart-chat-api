@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic>=2
+python-dotenv
+psycopg2-binary
+sqlalchemy>=2
+qdrant-client>=1.9
+openai>=1.0

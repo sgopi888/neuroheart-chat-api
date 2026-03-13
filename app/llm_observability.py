@@ -47,15 +47,19 @@ def wrap_openai_client(client: T) -> T:
         return client
 
 
-def traceable_call(fn: Callable[..., T], run_name: str) -> Callable[..., T]:
-    """Wrap a function in a LangSmith trace root when enabled."""
-    if not configure_langsmith_env():
-        return fn
+def traceable_call(run_name: str) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """Return a decorator that wraps a function in a LangSmith trace root."""
 
-    try:
-        from langsmith import traceable
+    def decorator(fn: Callable[..., T]) -> Callable[..., T]:
+        if not configure_langsmith_env():
+            return fn
 
-        return traceable(name=run_name)(fn)
-    except Exception as exc:
-        logger.warning("LangSmith traceable wrapper unavailable: %s", exc)
-        return fn
+        try:
+            from langsmith import traceable
+
+            return traceable(name=run_name)(fn)
+        except Exception as exc:
+            logger.warning("LangSmith traceable wrapper unavailable: %s", exc)
+            return fn
+
+    return decorator

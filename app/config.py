@@ -18,9 +18,16 @@ class Settings:
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     # User intended gpt-5-nano; override via OPENAI_MODEL env var when available
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    langsmith_tracing: bool = os.getenv("LANGSMITH_TRACING", "false").lower() in ("true", "1", "yes")
+    langsmith_api_key: str = os.getenv("LANGSMITH_API_KEY", "")
+    lang_smith_key_legacy: str = os.getenv("LANG_SMITH_KEY", "")
+    langsmith_project: str = os.getenv("LANGSMITH_PROJECT", "neuroheart-chat-api")
+    langsmith_workspace_id: str = os.getenv("LANGSMITH_WORKSPACE_ID", "")
     app_token: str = os.getenv("APP_TOKEN", "")
     hrv_local: bool = os.getenv("HRV_LOCAL", "true").lower() in ("true", "1", "yes")
     hrv_mode: str = os.getenv("HRV_MODE", "compact")  # compact | meditation | full
+    debug_prompt_context: bool = os.getenv("DEBUG_PROMPT_CONTEXT", "false").lower() in ("true", "1", "yes")
+    debug_prompt_max_chars: int = int(os.getenv("DEBUG_PROMPT_MAX_CHARS", "200000"))
 
 
 settings = Settings()

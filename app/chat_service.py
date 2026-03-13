@@ -349,6 +349,21 @@ async def chat_once(
     # Append user message as the final turn
     prompt.append({"role": "user", "content": user_message})
 
+    if settings.debug_prompt_context:
+        try:
+            prompt_json = json.dumps(prompt, ensure_ascii=False, default=str)
+            if len(prompt_json) > settings.debug_prompt_max_chars:
+                prompt_json = prompt_json[: settings.debug_prompt_max_chars] + "\n...[truncated]"
+            logger.info(
+                "llm prompt debug — conversation_id=%s user_uid=%s hrv_range=%s prompt=%s",
+                conversation_id,
+                user_uid,
+                hrv_range,
+                prompt_json,
+            )
+        except Exception as exc:
+            logger.warning("Prompt debug logging failed: %s", exc)
+
     # Call OpenAI
     reply = await asyncio.to_thread(call_gpt, prompt)
 

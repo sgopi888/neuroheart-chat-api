@@ -92,4 +92,6 @@ async def chat(
     except LookupError:
         raise HTTPException(status_code=404, detail="conversation_not_found")
     except Exception as exc:
+        import logging
+        logging.getLogger(__name__).exception("chat_once failed: %s", exc)
         raise HTTPException(status_code=500, detail="chat_failed")

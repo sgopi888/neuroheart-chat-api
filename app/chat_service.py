@@ -15,7 +15,12 @@ from app.history_repository import (
     insert_message,
     update_summary,
 )
-from app.hrv_client import fetch_hrv_context
+from app.config import settings
+
+if settings.hrv_local:
+    from app.hrv_neurokit import fetch_hrv_context_local as fetch_hrv_context
+else:
+    from app.hrv_client import fetch_hrv_context
 from app.openai_client import call_gpt
 from app.rag_service import retrieve_rag
 from app.token_budget import MAX_TOKENS, count_tokens, trim_text_to_tokens
@@ -177,7 +182,7 @@ def _build_prompt(
         daily = hrv_context.get("daily_14d")
         if daily:
             hrv_daily_block = f"HRV_DAILY_14D:\n{json.dumps(daily, ensure_ascii=False)}"
-        agg_keys = ("hrv_90d", "hr_90d", "sleep_90d", "steps_90d")
+        agg_keys = ("hrv_90d", "hrv_sdnn_90d", "hr_90d", "sleep_90d", "steps_90d")
         agg = {k: hrv_context[k] for k in agg_keys if k in hrv_context}
         if agg:
             hrv_agg_block = f"HRV_AGGREGATES_90D:\n{json.dumps(agg, ensure_ascii=False)}"
@@ -278,7 +283,11 @@ async def chat_once(
 
     # Parallel: history (sync) + HRV (async) + RAG (thread)
     history = fetch_history(user_uid, conversation_id, limit=_RECENT_TURNS + 2)
-    hrv_task = asyncio.create_task(fetch_hrv_context(user_uid, hrv_range))
+    hrv_task = asyncio.create_task(
+        fetch_hrv_context(user_uid, hrv_range)
+        if not settings.hrv_local
+        else fetch_hrv_context(user_uid, hrv_range, mode=settings.hrv_mode)
+    )
     rag_hits = await asyncio.to_thread(retrieve_rag, user_message, user_uid, "documents1", rag_k)
     hrv_context = await hrv_task
 

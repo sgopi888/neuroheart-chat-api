@@ -19,6 +19,8 @@ class Settings:
     # User intended gpt-5-nano; override via OPENAI_MODEL env var when available
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     app_token: str = os.getenv("APP_TOKEN", "")
+    hrv_local: bool = os.getenv("HRV_LOCAL", "true").lower() in ("true", "1", "yes")
+    hrv_mode: str = os.getenv("HRV_MODE", "compact")  # compact | meditation | full
 
 
 settings = Settings()

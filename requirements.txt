@@ -8,3 +8,6 @@ sqlalchemy>=2
 qdrant-client>=1.9
 openai>=1.0
 tiktoken
+numpy<2.0
+neurokit2
+scipy

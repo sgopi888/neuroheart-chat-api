@@ -24,6 +24,22 @@ def main() -> int:
             {"date": "2026-03-12", "sdnn": 47.68, "mean_hr": 62.1},
             {"date": "2026-03-13", "sdnn": 56.01, "mean_hr": 55.0},
         ],
+        "hrv_timeseries_14d": [
+            {"timestamp": "2026-03-12T10:12:00+00:00", "value": 40.1},
+            {"timestamp": "2026-03-13T08:12:22+00:00", "value": 30.67},
+        ],
+        "hrv_sdnn_timeseries_14d": [
+            {"timestamp": "2026-03-12T11:02:00+00:00", "value": 46.9},
+            {"timestamp": "2026-03-13T09:17:00+00:00", "value": 48.4},
+        ],
+        "hrv_daily_hourly_30d": [
+            {"date": "2026-03-12", "window": "10:00-12:00", "avg_value": 40.1, "samples": 2},
+            {"date": "2026-03-13", "window": "08:00-10:00", "avg_value": 30.67, "samples": 1},
+        ],
+        "hrv_sdnn_daily_hourly_30d": [
+            {"date": "2026-03-12", "window": "10:00-12:00", "avg_value": 46.9, "samples": 1},
+            {"date": "2026-03-13", "window": "08:00-10:00", "avg_value": 48.4, "samples": 1},
+        ],
         "hrv_90d": {"mean_sdnn": 48.2, "trend": "stable"},
         "hrv_sdnn_90d": {
             "session_count": 12,
@@ -49,7 +65,14 @@ def main() -> int:
     print("=" * 80)
     for message in messages:
         content = message.get("content", "")
-        if "HRV_DAILY_14D" in content or "HRV_AGGREGATES_90D" in content:
+        if (
+            "HRV_DAILY_14D" in content
+            or "HRV_TIMESERIES_14D" in content
+            or "HRV_SDNN_TIMESERIES_14D" in content
+            or "HRV_DAILY_HOURLY_30D" in content
+            or "HRV_SDNN_DAILY_HOURLY_30D" in content
+            or "HRV_AGGREGATES_90D" in content
+        ):
             print(content)
             print("-" * 80)
 

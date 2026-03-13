@@ -175,19 +175,46 @@ def _build_prompt(
         breakdown["tokens_summary"] = tok
 
     # Pre-compute token costs for remaining blocks
-    # HRV daily matrix
+    # HRV context blocks
     hrv_daily_block = ""
+    hrv_ts_block = ""
+    hrv_sdnn_ts_block = ""
+    hrv_hourly_block = ""
+    hrv_sdnn_hourly_block = ""
     hrv_agg_block = ""
     if hrv_context:
         daily = hrv_context.get("daily_14d")
         if daily:
             hrv_daily_block = f"HRV_DAILY_14D:\n{json.dumps(daily, ensure_ascii=False)}"
+        hrv_ts = hrv_context.get("hrv_timeseries_14d")
+        if hrv_ts:
+            hrv_ts_block = f"HRV_TIMESERIES_14D:\n{json.dumps(hrv_ts, ensure_ascii=False)}"
+        hrv_sdnn_ts = hrv_context.get("hrv_sdnn_timeseries_14d")
+        if hrv_sdnn_ts:
+            hrv_sdnn_ts_block = (
+                f"HRV_SDNN_TIMESERIES_14D:\n{json.dumps(hrv_sdnn_ts, ensure_ascii=False)}"
+            )
+        hrv_hourly = hrv_context.get("hrv_daily_hourly_30d")
+        if hrv_hourly:
+            hrv_hourly_block = (
+                f"HRV_DAILY_HOURLY_30D:\n{json.dumps(hrv_hourly, ensure_ascii=False)}"
+            )
+        hrv_sdnn_hourly = hrv_context.get("hrv_sdnn_daily_hourly_30d")
+        if hrv_sdnn_hourly:
+            hrv_sdnn_hourly_block = (
+                f"HRV_SDNN_DAILY_HOURLY_30D:\n"
+                f"{json.dumps(hrv_sdnn_hourly, ensure_ascii=False)}"
+            )
         agg_keys = ("hrv_90d", "hrv_sdnn_90d", "hr_90d", "sleep_90d", "steps_90d")
         agg = {k: hrv_context[k] for k in agg_keys if k in hrv_context}
         if agg:
             hrv_agg_block = f"HRV_AGGREGATES_90D:\n{json.dumps(agg, ensure_ascii=False)}"
 
     hrv_daily_tok = count_tokens(hrv_daily_block) + 4 if hrv_daily_block else 0
+    hrv_ts_tok = count_tokens(hrv_ts_block) + 4 if hrv_ts_block else 0
+    hrv_sdnn_ts_tok = count_tokens(hrv_sdnn_ts_block) + 4 if hrv_sdnn_ts_block else 0
+    hrv_hourly_tok = count_tokens(hrv_hourly_block) + 4 if hrv_hourly_block else 0
+    hrv_sdnn_hourly_tok = count_tokens(hrv_sdnn_hourly_block) + 4 if hrv_sdnn_hourly_block else 0
     hrv_agg_tok = count_tokens(hrv_agg_block) + 4 if hrv_agg_block else 0
 
     # RAG chunks (trim each to 300 tokens)
@@ -219,7 +246,14 @@ def _build_prompt(
     def _hist_tok(n: int) -> int:
         return sum(count_tokens(b["content"]) + 4 for b in history_blocks[-n:]) if n > 0 else 0
 
-    hrv_tok = hrv_daily_tok + hrv_agg_tok
+    hrv_tok = (
+        hrv_daily_tok
+        + hrv_ts_tok
+        + hrv_sdnn_ts_tok
+        + hrv_hourly_tok
+        + hrv_sdnn_hourly_tok
+        + hrv_agg_tok
+    )
     rag_n = len(trimmed_snips)
     hist_n = len(history_blocks)
 
@@ -243,6 +277,22 @@ def _build_prompt(
         messages.append({"role": "system", "content": hrv_daily_block})
         used += hrv_daily_tok
         hrv_included_tok += hrv_daily_tok
+    if hrv_ts_block:
+        messages.append({"role": "system", "content": hrv_ts_block})
+        used += hrv_ts_tok
+        hrv_included_tok += hrv_ts_tok
+    if hrv_sdnn_ts_block:
+        messages.append({"role": "system", "content": hrv_sdnn_ts_block})
+        used += hrv_sdnn_ts_tok
+        hrv_included_tok += hrv_sdnn_ts_tok
+    if hrv_hourly_block:
+        messages.append({"role": "system", "content": hrv_hourly_block})
+        used += hrv_hourly_tok
+        hrv_included_tok += hrv_hourly_tok
+    if hrv_sdnn_hourly_block:
+        messages.append({"role": "system", "content": hrv_sdnn_hourly_block})
+        used += hrv_sdnn_hourly_tok
+        hrv_included_tok += hrv_sdnn_hourly_tok
     # 4. HRV aggregates
     if hrv_agg_block:
         messages.append({"role": "system", "content": hrv_agg_block})

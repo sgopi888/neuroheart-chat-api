@@ -53,6 +53,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 _RANGE_DAYS = {"1d": 1, "7d": 7, "30d": 30, "6m": 180}
 _DAILY_WINDOW = 14
+_TIMESERIES_WINDOW = 14
+_DAILY_HOURLY_WINDOW = 30
 _AGG_WINDOW = 90
 _TREND_THRESHOLD = 0.05  # 5% difference for trend detection
 
@@ -148,9 +150,22 @@ def _compute_hrv_context(
             tier = _detect_tier(conn, user_uid)
             daily_14d = _query_daily_14d(conn, user_uid, tier)
             latest_metrics = _compute_latest_session_metrics(conn, user_uid, tier)
+        hrv_timeseries_14d = _sample_timeseries(conn, user_uid, "hrv", _TIMESERIES_WINDOW)
+        hrv_sdnn_timeseries_14d = _sample_timeseries(conn, user_uid, "hrv_sdnn", _TIMESERIES_WINDOW)
+        hrv_daily_hourly_30d = _daily_hourly_timeseries(conn, user_uid, "hrv", _DAILY_HOURLY_WINDOW)
+        hrv_sdnn_daily_hourly_30d = _daily_hourly_timeseries(
+            conn, user_uid, "hrv_sdnn", _DAILY_HOURLY_WINDOW
+        )
         aggregates = _compute_aggregates(conn, user_uid, _AGG_WINDOW)
 
-    if not daily_14d and not aggregates:
+    if (
+        not daily_14d
+        and not hrv_timeseries_14d
+        and not hrv_sdnn_timeseries_14d
+        and not hrv_daily_hourly_30d
+        and not hrv_sdnn_daily_hourly_30d
+        and not aggregates
+    ):
         return {}
 
     # Filter daily records by mode
@@ -160,6 +175,14 @@ def _compute_hrv_context(
     result: Dict[str, Any] = {}
     if filtered_daily:
         result["daily_14d"] = filtered_daily
+    if hrv_timeseries_14d:
+        result["hrv_timeseries_14d"] = hrv_timeseries_14d
+    if hrv_sdnn_timeseries_14d:
+        result["hrv_sdnn_timeseries_14d"] = hrv_sdnn_timeseries_14d
+    if hrv_daily_hourly_30d:
+        result["hrv_daily_hourly_30d"] = hrv_daily_hourly_30d
+    if hrv_sdnn_daily_hourly_30d:
+        result["hrv_sdnn_daily_hourly_30d"] = hrv_sdnn_daily_hourly_30d
     result.update(aggregates)
     if latest_metrics:
         result["hrv_metrics"] = _filter_by_mode(latest_metrics, fields)
@@ -265,6 +288,65 @@ def _daily_from_apple_sdnn(conn: Any, user_uid: str) -> List[Dict[str, Any]]:
             "mean_hr": None,  # filled later
         })
     return daily[-_DAILY_WINDOW:]
+
+
+def _sample_timeseries(
+    conn: Any, user_uid: str, sample_type: str, days: int
+) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        text("""
+            SELECT start_time AT TIME ZONE 'UTC' AS ts,
+                   value
+            FROM health_samples
+            WHERE user_id = :uid
+              AND sample_type = :sample_type
+              AND start_time >= NOW() - INTERVAL ':days days'
+              AND value IS NOT NULL
+            ORDER BY start_time ASC
+        """.replace(":days", str(days))),
+        {"uid": user_uid, "sample_type": sample_type},
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        result.append({
+            "timestamp": row.ts.isoformat(),
+            "value": round(float(row.value), 2),
+        })
+    return result
+
+
+def _daily_hourly_timeseries(
+    conn: Any, user_uid: str, sample_type: str, days: int
+) -> List[Dict[str, Any]]:
+    rows = conn.execute(
+        text("""
+            SELECT DATE(start_time AT TIME ZONE 'UTC') AS day,
+                   FLOOR(EXTRACT(HOUR FROM start_time AT TIME ZONE 'UTC') / 2) * 2 AS hour_bucket,
+                   AVG(value) AS avg_value,
+                   COUNT(*) AS samples
+            FROM health_samples
+            WHERE user_id = :uid
+              AND sample_type = :sample_type
+              AND start_time >= NOW() - INTERVAL ':days days'
+              AND value IS NOT NULL
+            GROUP BY DATE(start_time AT TIME ZONE 'UTC'),
+                     FLOOR(EXTRACT(HOUR FROM start_time AT TIME ZONE 'UTC') / 2) * 2
+            ORDER BY day ASC, hour_bucket ASC
+        """.replace(":days", str(days))),
+        {"uid": user_uid, "sample_type": sample_type},
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        hour_value = int(row.hour_bucket)
+        result.append({
+            "date": str(row.day),
+            "window": f"{hour_value:02d}:00-{hour_value + 2:02d}:00",
+            "avg_value": round(float(row.avg_value), 2),
+            "samples": int(row.samples),
+        })
+    return result
 
 
 # --- Tier 2: hrv_sdnn with beat_to_beat_bpm payload ---

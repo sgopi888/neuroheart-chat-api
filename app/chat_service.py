@@ -18,7 +18,7 @@ from app.history_repository import (
 from app.config import settings
 
 if settings.hrv_local:
-    from app.hrv_neurokit import fetch_hrv_context_local as fetch_hrv_context
+    from app.hrv_apple import fetch_hrv_context_apple as fetch_hrv_context
 else:
     from app.hrv_client import fetch_hrv_context
 from app.openai_client import call_gpt

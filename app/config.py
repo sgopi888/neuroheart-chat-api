@@ -27,6 +27,12 @@ class Settings:
     hrv_local: bool = os.getenv("HRV_LOCAL", "true").lower() in ("true", "1", "yes")
     hrv_mode: str = os.getenv("HRV_MODE", "compact")  # compact | meditation | full
     max_completion_tokens: int = int(os.getenv("MAX_COMPLETION_TOKENS", "16384"))
+    # Background / mem0 settings
+    openai_model_mem0: str = os.getenv("OPENAI_MODEL_MEM0", "gpt-5-nano")
+    token_limit_mem0: int = int(os.getenv("TOKEN_LIMIT_MEM0", "50000"))
+    mem0_max_daily_cost: float = float(os.getenv("MEM0_MAX_COST", "2.0"))
+    memory_extraction_enabled: bool = os.getenv("MEMORY_EXTRACTION_ENABLED", "true").lower() in ("true", "1", "yes")
+    cross_chat_memory_enabled: bool = os.getenv("CROSS_CHAT_MEMORY_ENABLED", "true").lower() in ("true", "1", "yes")
     debug_prompt_context: bool = os.getenv("DEBUG_PROMPT_CONTEXT", "false").lower() in ("true", "1", "yes")
     debug_prompt_max_chars: int = int(os.getenv("DEBUG_PROMPT_MAX_CHARS", "200000"))
 

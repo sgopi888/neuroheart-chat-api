@@ -46,3 +46,22 @@ def call_gpt(messages: List[Dict[str, str]]) -> str:
         return content
 
     return _call(messages)
+
+
+def call_gpt_mem0(messages: List[Dict[str, str]]) -> str:
+    """Call OpenAI with the mem0 model (for background tasks like summarization)."""
+    client = get_openai()
+    resp = client.chat.completions.create(
+        model=settings.openai_model_mem0,
+        messages=messages,
+        max_completion_tokens=settings.max_completion_tokens,
+    )
+    choice = resp.choices[0]
+    content = (choice.message.content or "").strip()
+    if not content:
+        logger.warning(
+            "GPT mem0 returned empty — finish_reason=%s usage=%s",
+            choice.finish_reason,
+            resp.usage,
+        )
+    return content

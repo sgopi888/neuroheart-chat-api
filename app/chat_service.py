@@ -11,9 +11,11 @@ from app.history_repository import (
     fetch_history,
     fetch_messages_for_summarization,
     fetch_recent_message_ids,
+    get_cross_chat_profile,
     get_or_create_summary,
     insert_message,
     update_summary,
+    upsert_cross_chat_profile,
 )
 from app.config import settings
 
@@ -21,8 +23,8 @@ if settings.hrv_local:
     from app.hrv_apple import fetch_hrv_context_apple as fetch_hrv_context
 else:
     from app.hrv_client import fetch_hrv_context
-from app.memory_service import extract_and_store_memories, retrieve_memories
-from app.openai_client import call_gpt
+from app.memory_service import extract_and_store_memories, retrieve_memories, update_cross_chat_profile
+from app.openai_client import call_gpt, call_gpt_mem0
 from app.rag_service import retrieve_rag
 from app.token_budget import MAX_TOKENS, count_tokens, trim_text_to_tokens
 
@@ -31,9 +33,9 @@ logger = logging.getLogger(__name__)
 # How many recent turns to keep verbatim (Layer 1 — short-term window)
 _RECENT_TURNS = 10
 # Summarize when total messages exceed this threshold (Layer 3 — rolling summary)
-_SUMMARIZE_THRESHOLD = 20
-# Also trigger when older messages exceed this many tokens
-_HISTORY_TOKEN_TRIGGER = 60_000
+_SUMMARIZE_THRESHOLD = 50
+# Trigger when older messages exceed this many tokens
+_HISTORY_TOKEN_TRIGGER = 50_000
 # Max tokens per RAG chunk
 _RAG_CHUNK_TOKENS = 300
 # Max RAG chunks
@@ -121,7 +123,7 @@ async def _maybe_summarize(conversation_id: str, user_uid: str) -> str:
 
     try:
         prompt = _summarization_prompt(current_summary, to_summarize)
-        new_summary = await asyncio.to_thread(call_gpt, prompt)
+        new_summary = await asyncio.to_thread(call_gpt_mem0, prompt)
         new_summary = trim_text_to_tokens(new_summary, _SUMMARY_MAX_TOKENS)
         max_id = max(m["id"] for m in to_summarize)
         update_summary(conversation_id, max_id, new_summary)
@@ -205,6 +207,7 @@ def _format_hrv_compact(hrv: Dict[str, Any]) -> str:
 def _build_prompt(
     summary: str,
     memories: List[str],
+    cross_chat_profile: str,
     history: List[Dict[str, Any]],
     hrv_context: Dict[str, Any],
     rag_hits: List[Dict[str, Any]],
@@ -255,6 +258,12 @@ def _build_prompt(
         mem_block = "USER_MEMORIES:\n- " + "\n- ".join(memories)
     mem_tok = count_tokens(mem_block) + 4 if mem_block else 0
 
+    # 3b. Cross-chat user profile
+    profile_block = ""
+    if cross_chat_profile:
+        profile_block = f"USER_PROFILE:\n{cross_chat_profile}"
+    profile_tok = count_tokens(profile_block) + 4 if profile_block else 0
+
     # Pre-compute HRV context as compact CSV-like strings (no repeated keys)
     hrv_block = ""
     if hrv_context:
@@ -298,7 +307,7 @@ def _build_prompt(
         candidate_rag = min(candidate_rag, rag_n)
         for candidate_hist in (hist_n, 12, 8, 4, 0):
             candidate_hist = min(candidate_hist, hist_n)
-            total = used + mem_tok + hrv_tok + _rag_tok(candidate_rag) + _hist_tok(candidate_hist) + user_tok
+            total = used + mem_tok + profile_tok + hrv_tok + _rag_tok(candidate_rag) + _hist_tok(candidate_hist) + user_tok
             if total <= MAX_TOKENS:
                 rag_n = candidate_rag
                 hist_n = candidate_hist
@@ -312,6 +321,11 @@ def _build_prompt(
         messages.append({"role": "system", "content": mem_block})
         used += mem_tok
     breakdown["tokens_memory"] = mem_tok
+
+    # 3b. Cross-chat user profile
+    if profile_block:
+        messages.append({"role": "system", "content": profile_block})
+        used += profile_tok
 
     # 4. HRV context (single compact block)
     if hrv_block:
@@ -338,6 +352,24 @@ def _build_prompt(
     return messages, breakdown
 
 
+async def _update_cross_chat_profile_bg(
+    user_uid: str, user_msg: str, assistant_msg: str, existing_profile: str
+) -> None:
+    """Background task to update the cross-chat user profile.
+    Skips trivial messages (short greetings etc.)."""
+    if len(user_msg.strip()) < 40 or len(assistant_msg.strip()) < 50:
+        return
+    try:
+        new_profile = await asyncio.to_thread(
+            update_cross_chat_profile, user_uid, [user_msg], [assistant_msg], existing_profile
+        )
+        if new_profile and new_profile != existing_profile:
+            await asyncio.to_thread(upsert_cross_chat_profile, user_uid, new_profile)
+            logger.info("Updated cross-chat profile for user %s", user_uid[:12])
+    except Exception as exc:
+        logger.warning("Cross-chat profile update failed: %s", exc)
+
+
 async def chat_once(
     user_uid: str,
     conversation_id: str,
@@ -362,13 +394,18 @@ async def chat_once(
     # Layer 2: retrieve long-term memories (semantic search on user facts)
     memories = await asyncio.to_thread(retrieve_memories, user_uid, user_message)
 
+    # Cross-chat user profile
+    cross_chat_profile = ""
+    if settings.cross_chat_memory_enabled:
+        cross_chat_profile = await asyncio.to_thread(get_cross_chat_profile, user_uid)
+
     hrv_context = await hrv_task
 
     # Layer 3: summarize old messages if needed (runs in background of this request)
     summary = await _maybe_summarize(conversation_id, user_uid)
 
     # Build prompt with 3-layer memory architecture
-    prompt, breakdown = _build_prompt(summary, memories, history, hrv_context, rag_hits, user_message)
+    prompt, breakdown = _build_prompt(summary, memories, cross_chat_profile, history, hrv_context, rag_hits, user_message)
     # Append user message as the final turn
     prompt.append({"role": "user", "content": user_message})
 
@@ -402,6 +439,12 @@ async def chat_once(
 
     # Layer 2: extract and store memories in background (no latency hit)
     asyncio.create_task(extract_and_store_memories(user_uid, user_message, reply))
+
+    # Cross-chat profile update in background
+    if settings.cross_chat_memory_enabled:
+        asyncio.create_task(
+            _update_cross_chat_profile_bg(user_uid, user_message, reply, cross_chat_profile)
+        )
 
     latency_ms = int((time.time() - t0) * 1000)
     used_context = bool(hrv_context) or bool(rag_hits)

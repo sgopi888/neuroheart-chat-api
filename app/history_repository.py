@@ -225,6 +225,33 @@ def fetch_messages_for_summarization(
     return [dict(r._mapping) for r in rows]
 
 
+def get_cross_chat_profile(user_uid: str) -> str:
+    """Get the cross-chat user profile. Returns empty string if none exists."""
+    eng = get_engine()
+    with eng.begin() as conn:
+        row = conn.execute(
+            text("SELECT profile FROM user_cross_chat_profiles WHERE user_uid = :uid"),
+            {"uid": user_uid},
+        ).fetchone()
+    return row.profile if row else ""
+
+
+def upsert_cross_chat_profile(user_uid: str, profile: str) -> None:
+    """Create or update the cross-chat user profile."""
+    eng = get_engine()
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO user_cross_chat_profiles (user_uid, profile)
+                VALUES (:uid, :profile)
+                ON CONFLICT (user_uid) DO UPDATE SET profile = :profile, updated_at = now()
+                """
+            ),
+            {"uid": user_uid, "profile": profile},
+        )
+
+
 def fetch_recent_message_ids(conversation_id: str, n: int = 20) -> List[int]:
     """Return the IDs of the most recent N messages (ascending)."""
     eng = get_engine()

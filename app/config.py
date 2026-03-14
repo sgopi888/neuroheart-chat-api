@@ -15,6 +15,7 @@ class Settings:
     hrv_api_key: str = os.getenv("HRV_API_KEY", "")
     qdrant_url: str = os.getenv("QDRANT_URL", "")
     qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
+    qdrant_top_k: int = int(os.getenv("QDRANT_TOP_K", "10"))
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-5-nano")
     langsmith_tracing: bool = os.getenv("LANGSMITH_TRACING", "false").lower() in ("true", "1", "yes")

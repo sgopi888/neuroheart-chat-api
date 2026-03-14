@@ -342,7 +342,7 @@ async def chat_once(
         if not settings.hrv_local
         else fetch_hrv_context(user_uid, hrv_range, mode=settings.hrv_mode)
     )
-    rag_hits = await asyncio.to_thread(retrieve_rag, user_message, user_uid, "documents1", rag_k)
+    rag_hits = await asyncio.to_thread(retrieve_rag, user_message, user_uid, "documents1")
     hrv_context = await hrv_task
 
     # Summarize old messages if needed (runs in background of this request)

@@ -25,6 +25,7 @@ class Settings:
     app_token: str = os.getenv("APP_TOKEN", "")
     hrv_local: bool = os.getenv("HRV_LOCAL", "true").lower() in ("true", "1", "yes")
     hrv_mode: str = os.getenv("HRV_MODE", "compact")  # compact | meditation | full
+    max_completion_tokens: int = int(os.getenv("MAX_COMPLETION_TOKENS", "16384"))
     debug_prompt_context: bool = os.getenv("DEBUG_PROMPT_CONTEXT", "false").lower() in ("true", "1", "yes")
     debug_prompt_max_chars: int = int(os.getenv("DEBUG_PROMPT_MAX_CHARS", "200000"))
 

@@ -33,7 +33,7 @@ def call_gpt(messages: List[Dict[str, str]]) -> str:
         resp = client.chat.completions.create(
             model=settings.openai_model,
             messages=messages,
-            max_completion_tokens=2048,
+            max_completion_tokens=settings.max_completion_tokens,
         )
         choice = resp.choices[0]
         content = (choice.message.content or "").strip()

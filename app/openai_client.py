@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Dict, List
 
 from openai import OpenAI
 
 from app.config import settings
 from app.llm_observability import traceable_call, wrap_openai_client
+
+logger = logging.getLogger(__name__)
 
 _client: OpenAI | None = None
 
@@ -30,8 +33,16 @@ def call_gpt(messages: List[Dict[str, str]]) -> str:
         resp = client.chat.completions.create(
             model=settings.openai_model,
             messages=messages,
-            max_completion_tokens=600,
+            max_completion_tokens=2048,
         )
-        return (resp.choices[0].message.content or "").strip()
+        choice = resp.choices[0]
+        content = (choice.message.content or "").strip()
+        if not content:
+            logger.warning(
+                "GPT returned empty — finish_reason=%s usage=%s",
+                choice.finish_reason,
+                resp.usage,
+            )
+        return content
 
     return _call(messages)

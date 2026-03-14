@@ -16,8 +16,7 @@ class Settings:
     qdrant_url: str = os.getenv("QDRANT_URL", "")
     qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    # User intended gpt-5-nano; override via OPENAI_MODEL env var when available
-    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-5-nano")
     langsmith_tracing: bool = os.getenv("LANGSMITH_TRACING", "false").lower() in ("true", "1", "yes")
     langsmith_api_key: str = os.getenv("LANGSMITH_API_KEY", "")
     lang_smith_key_legacy: str = os.getenv("LANG_SMITH_KEY", "")

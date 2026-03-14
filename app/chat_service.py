@@ -130,6 +130,77 @@ async def _maybe_summarize(conversation_id: str, user_uid: str) -> str:
         return current_summary
 
 
+def _format_hrv_compact(hrv: Dict[str, Any]) -> str:
+    """Convert HRV context dict to compact CSV-like string for minimal token usage."""
+    parts: List[str] = []
+
+    # Daily 14-day: date: (sdnn, hr)
+    daily = hrv.get("daily_14d")
+    if daily:
+        rows = ", ".join(
+            f"{d['date']}: ({d.get('sdnn', '-')}, {d.get('mean_hr', '-')})"
+            for d in daily
+        )
+        parts.append(f"HRV_DAILY_14D (date: sdnn_ms, hr_bpm):\n{rows}")
+
+    # Daily 90-day: date: (sdnn, hr)
+    daily_90 = hrv.get("daily_90d")
+    if daily_90:
+        rows = ", ".join(
+            f"{d['date']}: ({d.get('sdnn', '-')}, {d.get('mean_hr', '-')})"
+            for d in daily_90
+        )
+        parts.append(f"HRV_DAILY_90D (date: sdnn_ms, hr_bpm):\n{rows}")
+
+    # Hourly HRV 30-day: group by date, compact windows
+    hrv_hourly = hrv.get("hrv_daily_hourly_30d")
+    if hrv_hourly:
+        by_date: Dict[str, List[str]] = {}
+        for h in hrv_hourly:
+            d = h["date"]
+            # Extract start hour from window like "12:00-14:00"
+            window = h.get("window", "")
+            hour = window.split(":")[0] if window else "?"
+            by_date.setdefault(d, []).append(f"{hour}h:{h['avg_value']}")
+        rows = "\n".join(f"{d}: {', '.join(vals)}" for d, vals in by_date.items())
+        parts.append(f"HRV_HOURLY_30D (date: hour:sdnn_ms):\n{rows}")
+
+    # Hourly SDNN 30-day: same compact format
+    hrv_sdnn_hourly = hrv.get("hrv_sdnn_daily_hourly_30d")
+    if hrv_sdnn_hourly:
+        by_date2: Dict[str, List[str]] = {}
+        for h in hrv_sdnn_hourly:
+            d = h["date"]
+            window = h.get("window", "")
+            hour = window.split(":")[0] if window else "?"
+            by_date2.setdefault(d, []).append(f"{hour}h:{h['avg_value']}")
+        rows = "\n".join(f"{d}: {', '.join(vals)}" for d, vals in by_date2.items())
+        parts.append(f"HRV_SDNN_HOURLY_30D (date: hour:sdnn_ms):\n{rows}")
+
+    # 90-day aggregates: compact key=value
+    agg_parts: List[str] = []
+    hrv_90d = hrv.get("hrv_90d")
+    if hrv_90d:
+        agg_parts.append(f"hrv: mean_sdnn={hrv_90d.get('mean_sdnn')}, trend={hrv_90d.get('trend')}")
+    hr_90d = hrv.get("hr_90d")
+    if hr_90d:
+        agg_parts.append(
+            f"hr: mean={hr_90d.get('mean')}, p10={hr_90d.get('p10')}, p90={hr_90d.get('p90')}"
+        )
+    sleep_90d = hrv.get("sleep_90d")
+    if sleep_90d:
+        agg_parts.append(
+            f"sleep: mean_hours={sleep_90d.get('mean_hours')}, trend={sleep_90d.get('trend')}"
+        )
+    steps_90d = hrv.get("steps_90d")
+    if steps_90d:
+        agg_parts.append(f"steps: mean={steps_90d.get('mean')}, trend={steps_90d.get('trend')}")
+    if agg_parts:
+        parts.append("HEALTH_90D:\n" + "; ".join(agg_parts))
+
+    return "\n\n".join(parts)
+
+
 def _build_prompt(
     summary: str,
     history: List[Dict[str, Any]],
@@ -175,48 +246,11 @@ def _build_prompt(
         used += tok
         breakdown["tokens_summary"] = tok
 
-    # Pre-compute token costs for remaining blocks
-    # HRV context blocks
-    hrv_daily_block = ""
-    hrv_ts_block = ""
-    hrv_sdnn_ts_block = ""
-    hrv_hourly_block = ""
-    hrv_sdnn_hourly_block = ""
-    hrv_agg_block = ""
+    # Pre-compute HRV context as compact CSV-like strings (no repeated keys)
+    hrv_block = ""
     if hrv_context:
-        daily = hrv_context.get("daily_14d")
-        if daily:
-            hrv_daily_block = f"HRV_DAILY_14D:\n{json.dumps(daily, ensure_ascii=False)}"
-        hrv_ts = hrv_context.get("hrv_timeseries_14d")
-        if hrv_ts:
-            hrv_ts_block = f"HRV_TIMESERIES_14D:\n{json.dumps(hrv_ts, ensure_ascii=False)}"
-        hrv_sdnn_ts = hrv_context.get("hrv_sdnn_timeseries_14d")
-        if hrv_sdnn_ts:
-            hrv_sdnn_ts_block = (
-                f"HRV_SDNN_TIMESERIES_14D:\n{json.dumps(hrv_sdnn_ts, ensure_ascii=False)}"
-            )
-        hrv_hourly = hrv_context.get("hrv_daily_hourly_30d")
-        if hrv_hourly:
-            hrv_hourly_block = (
-                f"HRV_DAILY_HOURLY_30D:\n{json.dumps(hrv_hourly, ensure_ascii=False)}"
-            )
-        hrv_sdnn_hourly = hrv_context.get("hrv_sdnn_daily_hourly_30d")
-        if hrv_sdnn_hourly:
-            hrv_sdnn_hourly_block = (
-                f"HRV_SDNN_DAILY_HOURLY_30D:\n"
-                f"{json.dumps(hrv_sdnn_hourly, ensure_ascii=False)}"
-            )
-        agg_keys = ("hrv_90d", "hrv_sdnn_90d", "hr_90d", "sleep_90d", "steps_90d")
-        agg = {k: hrv_context[k] for k in agg_keys if k in hrv_context}
-        if agg:
-            hrv_agg_block = f"HRV_AGGREGATES_90D:\n{json.dumps(agg, ensure_ascii=False)}"
-
-    hrv_daily_tok = count_tokens(hrv_daily_block) + 4 if hrv_daily_block else 0
-    hrv_ts_tok = count_tokens(hrv_ts_block) + 4 if hrv_ts_block else 0
-    hrv_sdnn_ts_tok = count_tokens(hrv_sdnn_ts_block) + 4 if hrv_sdnn_ts_block else 0
-    hrv_hourly_tok = count_tokens(hrv_hourly_block) + 4 if hrv_hourly_block else 0
-    hrv_sdnn_hourly_tok = count_tokens(hrv_sdnn_hourly_block) + 4 if hrv_sdnn_hourly_block else 0
-    hrv_agg_tok = count_tokens(hrv_agg_block) + 4 if hrv_agg_block else 0
+        hrv_block = _format_hrv_compact(hrv_context)
+    hrv_tok = count_tokens(hrv_block) + 4 if hrv_block else 0
 
     # RAG chunks (trim each to 300 tokens)
     trimmed_snips: List[str] = []
@@ -247,14 +281,6 @@ def _build_prompt(
     def _hist_tok(n: int) -> int:
         return sum(count_tokens(b["content"]) + 4 for b in history_blocks[-n:]) if n > 0 else 0
 
-    hrv_tok = (
-        hrv_daily_tok
-        + hrv_ts_tok
-        + hrv_sdnn_ts_tok
-        + hrv_hourly_tok
-        + hrv_sdnn_hourly_tok
-        + hrv_agg_tok
-    )
     rag_n = len(trimmed_snips)
     hist_n = len(history_blocks)
 
@@ -272,34 +298,11 @@ def _build_prompt(
             continue
         break
 
-    # 3. HRV daily matrix
-    hrv_included_tok = 0
-    if hrv_daily_block:
-        messages.append({"role": "system", "content": hrv_daily_block})
-        used += hrv_daily_tok
-        hrv_included_tok += hrv_daily_tok
-    if hrv_ts_block:
-        messages.append({"role": "system", "content": hrv_ts_block})
-        used += hrv_ts_tok
-        hrv_included_tok += hrv_ts_tok
-    if hrv_sdnn_ts_block:
-        messages.append({"role": "system", "content": hrv_sdnn_ts_block})
-        used += hrv_sdnn_ts_tok
-        hrv_included_tok += hrv_sdnn_ts_tok
-    if hrv_hourly_block:
-        messages.append({"role": "system", "content": hrv_hourly_block})
-        used += hrv_hourly_tok
-        hrv_included_tok += hrv_hourly_tok
-    if hrv_sdnn_hourly_block:
-        messages.append({"role": "system", "content": hrv_sdnn_hourly_block})
-        used += hrv_sdnn_hourly_tok
-        hrv_included_tok += hrv_sdnn_hourly_tok
-    # 4. HRV aggregates
-    if hrv_agg_block:
-        messages.append({"role": "system", "content": hrv_agg_block})
-        used += hrv_agg_tok
-        hrv_included_tok += hrv_agg_tok
-    breakdown["tokens_hrv"] = hrv_included_tok
+    # 3. HRV context (single compact block)
+    if hrv_block:
+        messages.append({"role": "system", "content": hrv_block})
+        used += hrv_tok
+    breakdown["tokens_hrv"] = hrv_tok
 
     # 5. RAG snippets
     if rag_n > 0:

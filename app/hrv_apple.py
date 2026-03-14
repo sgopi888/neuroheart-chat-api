@@ -40,8 +40,12 @@ def _compute_hrv_context_apple(user_uid: str) -> Dict[str, Any]:
             d = row["date"]
             row["mean_hr"] = round(hr_daily[d], 1) if d in hr_daily else None
 
-        hrv_timeseries_14d = _sample_timeseries(conn, user_uid, "hrv", _TIMESERIES_WINDOW)
-        hrv_sdnn_timeseries_14d = _sample_timeseries(conn, user_uid, "hrv_sdnn", _TIMESERIES_WINDOW)
+        daily_90d = _daily_from_apple_sdnn_range(conn, user_uid, _AGG_WINDOW)
+        hr_daily_90 = _daily_heart_rate_range(conn, user_uid, _AGG_WINDOW)
+        for row in daily_90d:
+            d = row["date"]
+            row["mean_hr"] = round(hr_daily_90[d], 1) if d in hr_daily_90 else None
+
         hrv_daily_hourly_30d = _daily_hourly_timeseries(conn, user_uid, "hrv", _DAILY_HOURLY_WINDOW)
         hrv_sdnn_daily_hourly_30d = _daily_hourly_timeseries(
             conn, user_uid, "hrv_sdnn", _DAILY_HOURLY_WINDOW
@@ -50,8 +54,7 @@ def _compute_hrv_context_apple(user_uid: str) -> Dict[str, Any]:
 
     if (
         not daily_14d
-        and not hrv_timeseries_14d
-        and not hrv_sdnn_timeseries_14d
+        and not daily_90d
         and not hrv_daily_hourly_30d
         and not hrv_sdnn_daily_hourly_30d
         and not aggregates
@@ -61,10 +64,8 @@ def _compute_hrv_context_apple(user_uid: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     if daily_14d:
         result["daily_14d"] = daily_14d
-    if hrv_timeseries_14d:
-        result["hrv_timeseries_14d"] = hrv_timeseries_14d
-    if hrv_sdnn_timeseries_14d:
-        result["hrv_sdnn_timeseries_14d"] = hrv_sdnn_timeseries_14d
+    if daily_90d:
+        result["daily_90d"] = daily_90d
     if hrv_daily_hourly_30d:
         result["hrv_daily_hourly_30d"] = hrv_daily_hourly_30d
     if hrv_sdnn_daily_hourly_30d:
@@ -97,6 +98,47 @@ def _daily_from_apple_sdnn(conn: Any, user_uid: str) -> List[Dict[str, Any]]:
             "mean_hr": None,
         })
     return daily[-_DAILY_WINDOW:]
+
+
+def _daily_from_apple_sdnn_range(conn: Any, user_uid: str, days: int) -> List[Dict[str, Any]]:
+    """Daily SDNN averages for arbitrary day range."""
+    rows = conn.execute(
+        text("""
+            SELECT DATE(start_time AT TIME ZONE 'UTC') AS day,
+                   AVG(value) AS avg_sdnn
+            FROM health_samples
+            WHERE user_id = :uid
+              AND sample_type = 'hrv'
+              AND start_time >= NOW() - INTERVAL ':days days'
+              AND value IS NOT NULL
+            GROUP BY DATE(start_time AT TIME ZONE 'UTC')
+            ORDER BY day ASC
+        """.replace(":days", str(days))),
+        {"uid": user_uid},
+    ).fetchall()
+
+    return [
+        {"date": str(row.day), "sdnn": round(float(row.avg_sdnn), 2), "mean_hr": None}
+        for row in rows
+    ]
+
+
+def _daily_heart_rate_range(conn: Any, user_uid: str, days: int) -> Dict[str, float]:
+    """Daily heart rate averages for arbitrary day range."""
+    rows = conn.execute(
+        text("""
+            SELECT DATE(start_time AT TIME ZONE 'UTC') AS day,
+                   AVG(value) AS mean_hr
+            FROM health_samples
+            WHERE user_id = :uid
+              AND sample_type = 'heart_rate'
+              AND start_time >= NOW() - INTERVAL ':days days'
+              AND value IS NOT NULL
+            GROUP BY DATE(start_time AT TIME ZONE 'UTC')
+        """.replace(":days", str(days))),
+        {"uid": user_uid},
+    ).fetchall()
+    return {str(row.day): float(row.mean_hr) for row in rows}
 
 
 def _daily_heart_rate(conn: Any, user_uid: str) -> Dict[str, float]:

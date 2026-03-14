@@ -21,16 +21,17 @@ if settings.hrv_local:
     from app.hrv_apple import fetch_hrv_context_apple as fetch_hrv_context
 else:
     from app.hrv_client import fetch_hrv_context
+from app.memory_service import extract_and_store_memories, retrieve_memories
 from app.openai_client import call_gpt
 from app.rag_service import retrieve_rag
 from app.token_budget import MAX_TOKENS, count_tokens, trim_text_to_tokens
 
 logger = logging.getLogger(__name__)
 
-# How many recent turns to keep verbatim
-_RECENT_TURNS = 20
-# Summarize when total messages exceed this threshold
-_SUMMARIZE_THRESHOLD = 40
+# How many recent turns to keep verbatim (Layer 1 — short-term window)
+_RECENT_TURNS = 10
+# Summarize when total messages exceed this threshold (Layer 3 — rolling summary)
+_SUMMARIZE_THRESHOLD = 20
 # Also trigger when older messages exceed this many tokens
 _HISTORY_TOKEN_TRIGGER = 60_000
 # Max tokens per RAG chunk
@@ -203,6 +204,7 @@ def _format_hrv_compact(hrv: Dict[str, Any]) -> str:
 
 def _build_prompt(
     summary: str,
+    memories: List[str],
     history: List[Dict[str, Any]],
     hrv_context: Dict[str, Any],
     rag_hits: List[Dict[str, Any]],
@@ -213,11 +215,11 @@ def _build_prompt(
 
     Priority order:
       1. System prompt (always)
-      2. Rolling summary
-      3. HRV 14-day daily matrix
-      4. HRV 90-day aggregates
+      2. Rolling summary (Layer 3)
+      3. Long-term memories (Layer 2)
+      4. HRV context (compact)
       5. RAG snippets (≤20 chunks, ≤300 tokens each)
-      6. Recent 20 messages
+      6. Recent messages (Layer 1 — short-term window)
       7. User message (appended by caller)
 
     Returns (messages, token_breakdown).
@@ -226,6 +228,7 @@ def _build_prompt(
     breakdown: Dict[str, int] = {
         "tokens_system": 0,
         "tokens_summary": 0,
+        "tokens_memory": 0,
         "tokens_history": 0,
         "tokens_hrv": 0,
         "tokens_rag": 0,
@@ -238,13 +241,19 @@ def _build_prompt(
     used = count_tokens(sys_content) + 4
     breakdown["tokens_system"] = used
 
-    # 2. Rolling summary
+    # 2. Rolling summary (Layer 3)
     if summary:
         block = f"SESSION_SUMMARY:\n{summary}"
         tok = count_tokens(block) + 4
         messages.append({"role": "system", "content": block})
         used += tok
         breakdown["tokens_summary"] = tok
+
+    # 3. Long-term memories (Layer 2)
+    mem_block = ""
+    if memories:
+        mem_block = "USER_MEMORIES:\n- " + "\n- ".join(memories)
+    mem_tok = count_tokens(mem_block) + 4 if mem_block else 0
 
     # Pre-compute HRV context as compact CSV-like strings (no repeated keys)
     hrv_block = ""
@@ -289,7 +298,7 @@ def _build_prompt(
         candidate_rag = min(candidate_rag, rag_n)
         for candidate_hist in (hist_n, 12, 8, 4, 0):
             candidate_hist = min(candidate_hist, hist_n)
-            total = used + hrv_tok + _rag_tok(candidate_rag) + _hist_tok(candidate_hist) + user_tok
+            total = used + mem_tok + hrv_tok + _rag_tok(candidate_rag) + _hist_tok(candidate_hist) + user_tok
             if total <= MAX_TOKENS:
                 rag_n = candidate_rag
                 hist_n = candidate_hist
@@ -298,13 +307,19 @@ def _build_prompt(
             continue
         break
 
-    # 3. HRV context (single compact block)
+    # 3. Long-term memories (Layer 2)
+    if mem_block:
+        messages.append({"role": "system", "content": mem_block})
+        used += mem_tok
+    breakdown["tokens_memory"] = mem_tok
+
+    # 4. HRV context (single compact block)
     if hrv_block:
         messages.append({"role": "system", "content": hrv_block})
         used += hrv_tok
     breakdown["tokens_hrv"] = hrv_tok
 
-    # 5. RAG snippets
+    # 5. RAG snippets (knowledge base)
     if rag_n > 0:
         rag_block = "RAG_CONTEXT:\n- " + "\n- ".join(trimmed_snips[:rag_n])
         rt = _rag_tok(rag_n)
@@ -335,7 +350,7 @@ async def chat_once(
     # Persist user turn
     insert_message(user_uid, conversation_id, role="user", content=user_message)
 
-    # Parallel: history (sync) + HRV (async) + RAG (thread)
+    # Parallel: history (sync) + HRV (async) + RAG (thread) + memories (thread)
     history = fetch_history(user_uid, conversation_id, limit=_RECENT_TURNS + 2)
     hrv_task = asyncio.create_task(
         fetch_hrv_context(user_uid, hrv_range)
@@ -343,13 +358,17 @@ async def chat_once(
         else fetch_hrv_context(user_uid, hrv_range, mode=settings.hrv_mode)
     )
     rag_hits = await asyncio.to_thread(retrieve_rag, user_message, user_uid, "documents1")
+
+    # Layer 2: retrieve long-term memories (semantic search on user facts)
+    memories = await asyncio.to_thread(retrieve_memories, user_uid, user_message)
+
     hrv_context = await hrv_task
 
-    # Summarize old messages if needed (runs in background of this request)
+    # Layer 3: summarize old messages if needed (runs in background of this request)
     summary = await _maybe_summarize(conversation_id, user_uid)
 
-    # Build prompt with tiktoken budget enforcement
-    prompt, breakdown = _build_prompt(summary, history, hrv_context, rag_hits, user_message)
+    # Build prompt with 3-layer memory architecture
+    prompt, breakdown = _build_prompt(summary, memories, history, hrv_context, rag_hits, user_message)
     # Append user message as the final turn
     prompt.append({"role": "user", "content": user_message})
 
@@ -381,14 +400,18 @@ async def chat_once(
         metadata={"hrv_range": hrv_range, "rag_k": rag_k},
     )
 
+    # Layer 2: extract and store memories in background (no latency hit)
+    asyncio.create_task(extract_and_store_memories(user_uid, user_message, reply))
+
     latency_ms = int((time.time() - t0) * 1000)
     used_context = bool(hrv_context) or bool(rag_hits)
 
     logger.info(
-        "chat tokens — total=%d system=%d summary=%d history=%d hrv=%d rag=%d latency_ms=%d",
+        "chat tokens — total=%d system=%d summary=%d memory=%d history=%d hrv=%d rag=%d latency_ms=%d",
         breakdown["tokens_total"],
         breakdown["tokens_system"],
         breakdown["tokens_summary"],
+        breakdown.get("tokens_memory", 0),
         breakdown["tokens_history"],
         breakdown["tokens_hrv"],
         breakdown["tokens_rag"],

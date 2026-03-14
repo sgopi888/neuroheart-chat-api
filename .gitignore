@@ -12,3 +12,6 @@ health_samples.csv
 pull_dbdata.py
 hrv_completed.md
 test_gpt_context.py
+test_send_prompt.py
+test_multiturn.py
+test_memory.py

@@ -24,6 +24,7 @@ class Settings:
     langsmith_project: str = os.getenv("LANGSMITH_PROJECT", "neuroheart-chat-api")
     langsmith_workspace_id: str = os.getenv("LANGSMITH_WORKSPACE_ID", "")
     app_token: str = os.getenv("APP_TOKEN", "")
+    apple_bundle_id: str = os.getenv("APPLE_BUNDLE_ID", "com.neuroheart.app")
     hrv_local: bool = os.getenv("HRV_LOCAL", "true").lower() in ("true", "1", "yes")
     hrv_mode: str = os.getenv("HRV_MODE", "compact")  # compact | meditation | full
     max_completion_tokens: int = int(os.getenv("MAX_COMPLETION_TOKENS", "16384"))

@@ -7,6 +7,7 @@ psycopg2-binary
 sqlalchemy>=2
 qdrant-client>=1.9
 openai>=1.0
+PyJWT[crypto]>=2.8
 langsmith
 tiktoken
 numpy<2.0

@@ -4,6 +4,7 @@ import logging
 
 from fastapi import FastAPI
 
+from app.auth_router import router as auth_router
 from app.chat_router import router as chat_router
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
@@ -16,4 +17,5 @@ def health() -> dict:
     return {"ok": True}
 
 
+app.include_router(auth_router)
 app.include_router(chat_router)

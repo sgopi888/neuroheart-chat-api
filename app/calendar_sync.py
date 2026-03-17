@@ -149,5 +149,5 @@ def format_calendar_context(user_uid: str) -> str:
 
         lines.append(" | ".join(parts))
 
-    header = f"CALENDAR_CONTEXT (next {ctx['sync_days']} days, tz={ctx['timezone']}):"
+    header = f"CALENDAR_CONTEXT (past {ctx['sync_days']} days + next {ctx['sync_days']} days, tz={ctx['timezone']}):"
     return header + "\n" + "\n".join(lines)

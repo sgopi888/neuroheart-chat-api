@@ -408,7 +408,7 @@ async def chat_once(
     summary = await _maybe_summarize(conversation_id, user_uid)
 
     # Build prompt with 3-layer memory architecture
-    prompt, breakdown = _build_prompt(summary, memories, cross_chat_profile, history, hrv_context, rag_hits, user_message,
+    prompt, breakdown = _build_prompt(summary, memories, cross_chat_profile, history, hrv_context, rag_hits, user_message, calendar_context="",
         calendar_context=calendar_block)
     # Append user message as the final turn
     prompt.append({"role": "user", "content": user_message})

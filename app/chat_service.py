@@ -237,11 +237,6 @@ def _build_prompt(
         "tokens_history": 0,
         "tokens_hrv": 0,
 
-    # 4b. Calendar context
-    if calendar_context:
-        cal_tok = count_tokens(calendar_context) + 4
-        messages.append({"role": "system", "content": calendar_context})
-        used += cal_tok
         "tokens_rag": 0,
         "tokens_total": 0,
     }
@@ -251,6 +246,12 @@ def _build_prompt(
     messages.append({"role": "system", "content": sys_content})
     used = count_tokens(sys_content) + 4
     breakdown["tokens_system"] = used
+
+    # 4b. Calendar context
+    if calendar_context:
+        cal_tok = count_tokens(calendar_context) + 4
+        messages.append({"role": "system", "content": calendar_context})
+        used += cal_tok
 
     # 2. Rolling summary (Layer 3)
     if summary:
@@ -415,7 +416,7 @@ async def chat_once(
     summary = await _maybe_summarize(conversation_id, user_uid)
 
     # Build prompt with 3-layer memory architecture
-    prompt, breakdown = _build_prompt(summary, memories, cross_chat_profile, history, hrv_context, rag_hits, user_message, calendar_context="",
+    prompt, breakdown = _build_prompt(summary, memories, cross_chat_profile, history, hrv_context, rag_hits, user_message,
         calendar_context=calendar_block)
     # Append user message as the final turn
     prompt.append({"role": "user", "content": user_message})

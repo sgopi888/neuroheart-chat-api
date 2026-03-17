@@ -213,6 +213,7 @@ def _build_prompt(
     hrv_context: Dict[str, Any],
     rag_hits: List[Dict[str, Any]],
     user_message: str,
+    calendar_context: str = "",
 ) -> tuple[List[Dict[str, str]], Dict[str, int]]:
     """
     Assemble prompt with strict tiktoken budget (MAX_TOKENS = 100k).
@@ -235,6 +236,12 @@ def _build_prompt(
         "tokens_memory": 0,
         "tokens_history": 0,
         "tokens_hrv": 0,
+
+    # 4b. Calendar context
+    if calendar_context:
+        cal_tok = count_tokens(calendar_context) + 4
+        messages.append({"role": "system", "content": calendar_context})
+        used += cal_tok
         "tokens_rag": 0,
         "tokens_total": 0,
     }

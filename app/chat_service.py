@@ -247,12 +247,6 @@ def _build_prompt(
     used = count_tokens(sys_content) + 4
     breakdown["tokens_system"] = used
 
-    # 4b. Calendar context
-    if calendar_context:
-        cal_tok = count_tokens(calendar_context) + 4
-        messages.append({"role": "system", "content": calendar_context})
-        used += cal_tok
-
     # 2. Rolling summary (Layer 3)
     if summary:
         block = f"SESSION_SUMMARY:\n{summary}"
@@ -337,9 +331,16 @@ def _build_prompt(
         used += profile_tok
 
     # 4. HRV context (single compact block)
+    if hrv_block:
         messages.append({"role": "system", "content": hrv_block})
         used += hrv_tok
     breakdown["tokens_hrv"] = hrv_tok
+
+    # 4b. Calendar context
+    if calendar_context:
+        cal_tok = count_tokens(calendar_context) + 4
+        messages.append({"role": "system", "content": calendar_context})
+        used += cal_tok
 
     # 5. RAG snippets (knowledge base)
     if rag_n > 0:

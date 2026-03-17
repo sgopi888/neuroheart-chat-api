@@ -31,7 +31,6 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _MEMORY_COLLECTION = "user_memories"
-_EMBEDDING_MODEL = "text-embedding-3-small"
 _EMBEDDING_DIM = 1536
 _MAX_MEMORIES_PER_USER = 200
 _RETRIEVAL_TOP_K = 5
@@ -95,7 +94,7 @@ def _get_openai() -> OpenAI:
 
 
 def _embed(text: str) -> List[float]:
-    resp = _get_openai().embeddings.create(model=_EMBEDDING_MODEL, input=text)
+    resp = _get_openai().embeddings.create(model=settings.openai_embeddings_model, input=text)
     _track_cost(0, 0, embed_tokens=resp.usage.total_tokens)
     return resp.data[0].embedding
 

@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 _COLLECTION = "documents1"
 _MAX_PASSAGE_CHARS = 600
-_EMBEDDING_MODEL = "text-embedding-3-small"
 
 _qdrant: QdrantClient | None = None
 _openai: OpenAI | None = None
@@ -35,7 +34,7 @@ def _get_openai() -> OpenAI:
 
 def _embed_query(text: str) -> List[float]:
     """Generate embedding vector for a query using OpenAI."""
-    resp = _get_openai().embeddings.create(model=_EMBEDDING_MODEL, input=text)
+    resp = _get_openai().embeddings.create(model=settings.openai_embeddings_model, input=text)
     return resp.data[0].embedding
 
 

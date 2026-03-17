@@ -18,6 +18,7 @@ class Settings:
     qdrant_top_k: int = int(os.getenv("QDRANT_TOP_K", "10"))
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-5-nano")
+    openai_embeddings_model: str = os.getenv("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small")
     langsmith_tracing: bool = os.getenv("LANGSMITH_TRACING", "false").lower() in ("true", "1", "yes")
     langsmith_api_key: str = os.getenv("LANGSMITH_API_KEY", "")
     lang_smith_key_legacy: str = os.getenv("LANG_SMITH_KEY", "")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from app.calendar_sync import format_calendar_context
 import json
 import logging
 import time
@@ -48,6 +49,11 @@ def _system_prompt() -> str:
     return (
         "You are NeuroHeart, a personal health insights assistant. "
         "Use the provided HRV and health context when relevant to give personalized advice. "
+    # 4b. Calendar context
+    if calendar_context:
+        cal_tok = count_tokens(calendar_context) + 4
+        messages.append({"role": "system", "content": calendar_context})
+        used += cal_tok
         "Use the context but be kind and like a counsellor and expert mindfulness expert. "
         "Never reference another user's data. "
         "Keep answers concise, practical, and supportive."
@@ -328,7 +334,6 @@ def _build_prompt(
         used += profile_tok
 
     # 4. HRV context (single compact block)
-    if hrv_block:
         messages.append({"role": "system", "content": hrv_block})
         used += hrv_tok
     breakdown["tokens_hrv"] = hrv_tok
@@ -400,12 +405,16 @@ async def chat_once(
         cross_chat_profile = await asyncio.to_thread(get_cross_chat_profile, user_uid)
 
     hrv_context = await hrv_task
+    # Calendar context (from synced events)
+    calendar_block = await asyncio.to_thread(format_calendar_context, user_uid)
+    # Calendar context (from synced events)
 
     # Layer 3: summarize old messages if needed (runs in background of this request)
     summary = await _maybe_summarize(conversation_id, user_uid)
 
     # Build prompt with 3-layer memory architecture
-    prompt, breakdown = _build_prompt(summary, memories, cross_chat_profile, history, hrv_context, rag_hits, user_message)
+    prompt, breakdown = _build_prompt(summary, memories, cross_chat_profile, history, hrv_context, rag_hits, user_message,
+        calendar_context=calendar_block)
     # Append user message as the final turn
     prompt.append({"role": "user", "content": user_message})
 

@@ -45,6 +45,8 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    calendar_change: bool = False
+    calendar_command: Optional[str] = None
     conversation_id: str
     reply: str
     used_context: bool

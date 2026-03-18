@@ -71,19 +71,7 @@ def history(
     _require_app_token(x_app_token)
     try:
         msgs = fetch_history(user_uid, conversation_id, limit=limit, before_id=before_id)
-        
-    # Detect calendar action in LLM reply
-    cal_keywords = [
-        "add to your calendar", "i'll add", "i've added", "i'll schedule",
-        "i've scheduled", "i'll cancel", "i'll remove", "i'll move",
-        "i've moved", "i'll update", "i've updated", "to your calendar",
-        "i'll create", "i've created", "i'll delete", "i've deleted",
-        "added to your calendar", "scheduled for", "event has been"
-    ]
-    reply_lower = out["reply"].lower()
-    is_calendar = any(kw in reply_lower for kw in cal_keywords)
-    
-    return {"conversation_id": conversation_id, "messages": msgs}
+        return {"conversation_id": conversation_id, "messages": msgs}
     except LookupError:
         raise HTTPException(status_code=404, detail="not_found")
 
@@ -106,23 +94,23 @@ async def chat(
             req.hrv_range,
             rag_k=3,
         )
-        
-    # Detect calendar action in LLM reply
-    cal_keywords = [
-        "add to your calendar", "i'll add", "i've added", "i'll schedule",
-        "i've scheduled", "i'll cancel", "i'll remove", "i'll move",
-        "i've moved", "i'll update", "i've updated", "to your calendar",
-        "i'll create", "i've created", "i'll delete", "i've deleted",
-        "added to your calendar", "scheduled for", "event has been"
-    ]
-    reply_lower = out["reply"].lower()
-    is_calendar = any(kw in reply_lower for kw in cal_keywords)
-    
-    return {
+
+        # Detect calendar action in LLM reply
+        cal_keywords = [
+            "add to your calendar", "i'll add", "i've added", "i'll schedule",
+            "i've scheduled", "i'll cancel", "i'll remove", "i'll move",
+            "i've moved", "i'll update", "i've updated", "to your calendar",
+            "i'll create", "i've created", "i'll delete", "i've deleted",
+            "added to your calendar", "scheduled for", "event has been"
+        ]
+        reply_lower = out["reply"].lower()
+        is_calendar = any(kw in reply_lower for kw in cal_keywords)
+
+        return {
             "conversation_id": req.conversation_id,
             "reply": out["reply"],
-        "calendar_change": is_calendar,
-        "calendar_command": req.message if is_calendar else None,
+            "calendar_change": is_calendar,
+            "calendar_command": req.message if is_calendar else None,
             "used_context": out["used_context"],
             "hrv_range": req.hrv_range,
             "rag_k": out["rag_k"],

@@ -67,3 +67,64 @@ class PracticeResponse(BaseModel):
     conversation_id: str
     script: str
     title: str
+
+
+# ── Meditation Audio ──────────────────────────────────────────────
+
+class MusicConfig(BaseModel):
+    mood: Optional[str] = None
+    style: Optional[str] = None
+    additional_context: Optional[str] = None
+
+
+class GenerateMeditationRequest(BaseModel):
+    user_uid: str
+    conversation_id: str
+    mood: str
+    depth: Optional[str] = None
+    duration: int  # minutes
+    session_type: str = "meditation"
+    music_config: Optional[MusicConfig] = None
+
+
+class GenerateMeditationResponse(BaseModel):
+    session_id: str
+    conversation_id: str
+    script: str
+    title: str
+    audio_url: str  # merged ready-to-play URL
+    meditation_type: str  # 'short' | 'medium' | 'deep'
+
+
+class AudioUploadRequest(BaseModel):
+    user_uid: str
+    session_id: str
+    conversation_id: str
+    meditation_type: str
+    audio_base64: str
+    duration_seconds: Optional[int] = None
+    title: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class AudioUploadResponse(BaseModel):
+    id: str
+    session_id: str
+    created_at: str
+
+
+class AudioNarrationItem(BaseModel):
+    id: str
+    session_id: str
+    conversation_id: str
+    meditation_type: str
+    audio_type: str
+    audio_url: str
+    duration_seconds: Optional[int] = None
+    title: Optional[str] = None
+    metadata: Optional[dict] = None
+    created_at: str
+
+
+class AudioListResponse(BaseModel):
+    narrations: List[AudioNarrationItem]

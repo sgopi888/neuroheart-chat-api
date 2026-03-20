@@ -13,3 +13,6 @@ tiktoken
 numpy<2.0
 neurokit2
 scipy
+gradio_client
+elevenlabs
+pydub

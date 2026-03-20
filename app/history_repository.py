@@ -269,3 +269,116 @@ def fetch_recent_message_ids(conversation_id: str, n: int = 20) -> List[int]:
         ).fetchall()
     ids = [r.id for r in rows]
     return list(reversed(ids))
+
+
+# ── Audio Narrations ──────────────────────────────────────────────
+
+
+def insert_audio_narration(
+    user_uid: str,
+    conversation_id: str,
+    session_id: str,
+    meditation_type: str,
+    audio_type: str,
+    file_path: str,
+    duration_seconds: int | None = None,
+    title: str | None = None,
+    metadata: dict | None = None,
+) -> Dict:
+    """Insert an audio narration record and return {id, created_at}."""
+    import json
+
+    eng = get_engine()
+    with eng.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                INSERT INTO audio_narrations
+                    (user_uid, conversation_id, session_id, meditation_type,
+                     audio_type, file_path, duration_seconds, title, metadata)
+                VALUES
+                    (:uid, CAST(:cid AS UUID), CAST(:sid AS UUID), :mtype,
+                     :atype, :fpath, :dur, :title, CAST(:meta AS JSONB))
+                RETURNING id, created_at
+                """
+            ),
+            {
+                "uid": user_uid,
+                "cid": conversation_id,
+                "sid": session_id,
+                "mtype": meditation_type,
+                "atype": audio_type,
+                "fpath": file_path,
+                "dur": duration_seconds,
+                "title": title,
+                "meta": json.dumps(metadata) if metadata else None,
+            },
+        ).fetchone()
+    return {"id": str(row.id), "created_at": str(row.created_at)}
+
+
+def list_audio_narrations(user_uid: str, limit: int = 25) -> List[Dict]:
+    """List audio narrations for a user, ordered by newest first."""
+    eng = get_engine()
+    with eng.begin() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT id, session_id, conversation_id, meditation_type,
+                       audio_type, file_path, duration_seconds, title,
+                       metadata, created_at
+                FROM audio_narrations
+                WHERE user_uid = :uid
+                ORDER BY created_at DESC
+                LIMIT :lim
+                """
+            ),
+            {"uid": user_uid, "lim": limit},
+        ).fetchall()
+    return [dict(r._mapping) for r in rows]
+
+
+def delete_audio_narration(narration_id: str, user_uid: str) -> str | None:
+    """Delete an audio narration by id (with ownership check). Returns file_path or None."""
+    eng = get_engine()
+    with eng.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                DELETE FROM audio_narrations
+                WHERE id = CAST(:nid AS UUID) AND user_uid = :uid
+                RETURNING file_path
+                """
+            ),
+            {"nid": narration_id, "uid": user_uid},
+        ).fetchone()
+    return row.file_path if row else None
+
+
+def enforce_audio_limit(user_uid: str, max_count: int = 25) -> List[str]:
+    """Delete oldest narrations if user has more than max_count. Returns deleted file_paths."""
+    eng = get_engine()
+    with eng.begin() as conn:
+        count_row = conn.execute(
+            text("SELECT COUNT(*) AS cnt FROM audio_narrations WHERE user_uid = :uid"),
+            {"uid": user_uid},
+        ).fetchone()
+        excess = count_row.cnt - max_count
+        if excess <= 0:
+            return []
+        rows = conn.execute(
+            text(
+                """
+                DELETE FROM audio_narrations
+                WHERE id IN (
+                    SELECT id FROM audio_narrations
+                    WHERE user_uid = :uid
+                    ORDER BY created_at ASC
+                    LIMIT :excess
+                )
+                RETURNING file_path
+                """
+            ),
+            {"uid": user_uid, "excess": excess},
+        ).fetchall()
+    return [r.file_path for r in rows]

@@ -15,3 +15,9 @@ test_gpt_context.py
 test_send_prompt.py
 test_multiturn.py
 test_memory.py
+*.mp3
+*.wavvenv/
+__pycache__/
+*.mp3
+*.pyc
+.env

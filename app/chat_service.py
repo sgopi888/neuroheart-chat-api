@@ -28,8 +28,8 @@ from app.memory_service import extract_and_store_memories, retrieve_memories, up
 from app.openai_client import call_gpt, call_gpt_mem0
 from app.prompts import (
     CHAT_SYSTEM_PROMPT,
-    PRACTICE_DEEP_PROMPT,
-    PRACTICE_QUICK_PROMPT,
+    MEDITATION_GENERATION_MEDIUM_PROMPT,
+    MEDITATION_GENERATION_SHORT_PROMPT,
     SUMMARIZATION_SYSTEM,
     SUMMARIZATION_USER_TEMPLATE,
 )
@@ -484,13 +484,9 @@ async def generate_practice_script(
 ) -> str:
     """Generate a meditation/practice script using full context (HRV, memories, RAG)."""
     if depth:
-        prompt = PRACTICE_DEEP_PROMPT.format(
-            mood=mood, depth=depth, duration=duration, session_type=session_type
-        )
+        prompt = MEDITATION_GENERATION_MEDIUM_PROMPT
     else:
-        prompt = PRACTICE_QUICK_PROMPT.format(
-            mood=mood, duration=duration, session_type=session_type
-        )
+        prompt = MEDITATION_GENERATION_SHORT_PROMPT
 
     response = await chat_once(
         user_uid=user_uid,

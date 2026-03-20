@@ -45,16 +45,6 @@ def list_conv(
 ) -> dict:
     _require_app_token(x_app_token)
     items = list_conversations(user_uid)
-    
-    # Detect calendar action in LLM reply
-    cal_keywords = [
-        "add to your calendar", "i'll add", "i've added", "i'll schedule",
-        "i've scheduled", "i'll cancel", "i'll remove", "i'll move",
-        "i've moved", "i'll update", "i've updated", "to your calendar",
-        "i'll create", "i've created", "i'll delete", "i've deleted",
-        "added to your calendar", "scheduled for", "event has been"
-    ]
-    
     return {"conversations": items}
 
 
@@ -101,6 +91,8 @@ async def chat(
             "i'll create", "i've created", "i'll delete", "i've deleted",
             "added to your calendar", "scheduled for", "event has been"
         ]
+        reply_lower = out["reply"].lower()
+        is_calendar = any(kw in reply_lower for kw in cal_keywords)
 
         return {
             "conversation_id": req.conversation_id,

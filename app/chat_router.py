@@ -54,8 +54,6 @@ def list_conv(
         "i'll create", "i've created", "i'll delete", "i've deleted",
         "added to your calendar", "scheduled for", "event has been"
     ]
-    reply_lower = out["reply"].lower()
-    is_calendar = any(kw in reply_lower for kw in cal_keywords)
     
     return {"conversations": items}
 
@@ -103,8 +101,6 @@ async def chat(
             "i'll create", "i've created", "i'll delete", "i've deleted",
             "added to your calendar", "scheduled for", "event has been"
         ]
-        reply_lower = out["reply"].lower()
-        is_calendar = any(kw in reply_lower for kw in cal_keywords)
 
         return {
             "conversation_id": req.conversation_id,

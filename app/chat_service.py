@@ -26,6 +26,13 @@ else:
     from app.hrv_client import fetch_hrv_context
 from app.memory_service import extract_and_store_memories, retrieve_memories, update_cross_chat_profile
 from app.openai_client import call_gpt, call_gpt_mem0
+from app.prompts import (
+    CHAT_SYSTEM_PROMPT,
+    PRACTICE_DEEP_PROMPT,
+    PRACTICE_QUICK_PROMPT,
+    SUMMARIZATION_SYSTEM,
+    SUMMARIZATION_USER_TEMPLATE,
+)
 from app.rag_service import retrieve_rag
 from app.token_budget import MAX_TOKENS, count_tokens, trim_text_to_tokens
 
@@ -46,19 +53,7 @@ _SUMMARY_MAX_TOKENS = 800
 
 
 def _system_prompt() -> str:
-    return (
-        "You are NeuroHeart, a personal health insights assistant. "
-        "When the user asks to create, modify, move, or cancel a calendar event, "
-        "respond with a friendly confirmation that includes the event title and time. "
-        "For example: \"Sure, I'll add 'Meditation' to your calendar for tomorrow at 9:00 AM.\" "
-        "or \"I'll cancel your workout on Friday.\" "
-        "Always use phrases like \"I'll add to your calendar\" or \"I've scheduled\" "
-        "so the system can detect the action. "
-        "Use the provided HRV and health context when relevant to give personalized advice. "
-        "Use the context but be kind and like a counsellor and expert mindfulness expert. "
-        "Never reference another user's data. "
-        "Keep answers concise, practical, and supportive."
-    )
+    return CHAT_SYSTEM_PROMPT
 
 
 def _summarization_prompt(existing_summary: str, messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -70,23 +65,13 @@ def _summarization_prompt(existing_summary: str, messages: List[Dict[str, Any]])
             lines.append(f"{role.upper()}: {content}")
     history_text = "\n".join(lines)
 
-    user_content = (
-        "You are summarizing a health coaching chat session.\n\n"
-    )
-    if existing_summary:
-        user_content += f"EXISTING SUMMARY:\n{existing_summary}\n\n"
-    user_content += (
-        f"NEW MESSAGES TO INCORPORATE:\n{history_text}\n\n"
-        "Produce a concise updated summary in this structured format:\n"
-        "- User profile / preferences learned:\n"
-        "- Recurring symptoms / patterns mentioned:\n"
-        "- Key events / dates:\n"
-        "- Action items / commitments:\n"
-        "- Open questions / unresolved threads:\n"
-        "Keep each section to 1-3 bullet points maximum."
+    existing_block = f"EXISTING SUMMARY:\n{existing_summary}\n\n" if existing_summary else ""
+    user_content = SUMMARIZATION_USER_TEMPLATE.format(
+        existing_summary_block=existing_block,
+        history_text=history_text,
     )
     return [
-        {"role": "system", "content": "You are a precise summarizer."},
+        {"role": "system", "content": SUMMARIZATION_SYSTEM},
         {"role": "user", "content": user_content},
     ]
 
@@ -487,3 +472,30 @@ async def chat_once(
         "rag_k": len(rag_hits),
         "latency_ms": latency_ms,
     }
+
+
+async def generate_practice_script(
+    user_uid: str,
+    conversation_id: str,
+    mood: str,
+    depth: str | None,
+    duration: int,
+    session_type: str,
+) -> str:
+    """Generate a meditation/practice script using full context (HRV, memories, RAG)."""
+    if depth:
+        prompt = PRACTICE_DEEP_PROMPT.format(
+            mood=mood, depth=depth, duration=duration, session_type=session_type
+        )
+    else:
+        prompt = PRACTICE_QUICK_PROMPT.format(
+            mood=mood, duration=duration, session_type=session_type
+        )
+
+    response = await chat_once(
+        user_uid=user_uid,
+        conversation_id=conversation_id,
+        user_message=prompt,
+        hrv_range="7d",
+    )
+    return response["reply"]

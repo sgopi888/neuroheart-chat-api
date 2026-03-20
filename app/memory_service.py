@@ -27,6 +27,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qm
 
 from app.config import settings
+from app.prompts import CROSS_CHAT_PROFILE_PROMPT, MEMORY_EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -119,23 +120,7 @@ def _ensure_collection() -> None:
         logger.info("Created Qdrant collection: %s", _MEMORY_COLLECTION)
 
 
-_EXTRACT_PROMPT = """\
-Extract key facts from this chat exchange that would be useful to remember \
-for future conversations with this user. Focus on:
-- Health conditions, symptoms, diagnoses mentioned
-- User preferences (exercise habits, sleep schedule, diet, meditation practice)
-- Personal context (job, stress triggers, goals, family situation)
-- Decisions made or commitments (e.g. "will try breathing exercises before bed")
-- Patterns noticed (e.g. "HRV drops on work-from-home days")
-
-Output ONLY a JSON array of strings, each a concise standalone fact.
-If nothing worth remembering, output [].
-Example: ["User practices meditation 3x/week", "Has insomnia on Sunday nights"]
-
-CHAT EXCHANGE:
-User: {user_msg}
-Assistant: {assistant_msg}
-"""
+_EXTRACT_PROMPT = MEMORY_EXTRACTION_PROMPT
 
 
 def _extract_facts(user_msg: str, assistant_msg: str) -> List[str]:
@@ -316,19 +301,7 @@ async def extract_and_store_memories(
 _CROSS_CHAT_MAX_LINES = 50  # max lines in profile
 _CROSS_CHAT_MAX_AGE_DAYS = 30
 
-_CROSS_CHAT_PROMPT = """\
-Add ONE short line (10-20 words max) summarizing what was discussed in this chat session.
-This line will be appended to the user's memory profile.
-
-Format: "YYYY-MM-DD: <one-liner about what was discussed>"
-
-CHAT EXCHANGE:
-User: {user_msg}
-Assistant: {assistant_msg}
-
-Output ONLY the single dated line, nothing else.
-Example: "2026-03-14: Discussed 3am wake-ups linked to work stress, suggested body scan before bed"
-"""
+_CROSS_CHAT_PROMPT = CROSS_CHAT_PROFILE_PROMPT
 
 
 def update_cross_chat_profile(

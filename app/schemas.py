@@ -52,3 +52,18 @@ class ChatResponse(BaseModel):
     used_context: bool
     hrv_range: str
     rag_k: int
+
+
+class PracticeRequest(BaseModel):
+    user_uid: str
+    conversation_id: str
+    mood: str
+    depth: Optional[str] = None
+    duration: int
+    session_type: str = "breathing"
+
+
+class PracticeResponse(BaseModel):
+    conversation_id: str
+    script: str
+    title: str

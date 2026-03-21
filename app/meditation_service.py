@@ -233,11 +233,20 @@ async def generate_meditation(
     )
 
     # Step 2: Generate voice + music in parallel
-    voice_result, music_result = await asyncio.gather(
-        _generate_voice(script, session_id),
-        _generate_music(music_config, session_id),
-        return_exceptions=True,
-    )
+    voice_task = _generate_voice(script, session_id)
+
+    if music_config and music_config.get("enabled") is False:
+        music_task = None
+    else:
+        music_task = _generate_music(music_config, session_id)
+
+    if music_task:
+        voice_result, music_result = await asyncio.gather(
+            voice_task, music_task, return_exceptions=True
+        )
+    else:
+        voice_result = await voice_task
+        music_result = None
 
     # Handle exceptions from gather
     voice_path = voice_result if isinstance(voice_result, str) else None

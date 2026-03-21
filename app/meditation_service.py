@@ -90,8 +90,8 @@ async def _generate_voice(script_text: str, session_id: str) -> str | None:
     def _call_hf():
         from gradio_client import Client
 
-        client = Client(settings.hf_space, hf_token=settings.hf_token)
-        result = client.predict(script_text, "Drew", api_name="/predict")
+        client = Client(settings.hf_space, token=settings.hf_token)
+        result = client.predict(script_text=script_text, voice_name="Drew", api_name="/predict")
         return result
 
     try:
@@ -309,7 +309,8 @@ async def generate_meditation(
 
     # Build streaming URL
     filename = os.path.basename(merged_path)
-    audio_url = f"{settings.audio_base_url}/stream/{filename}"
+    import time
+    audio_url = f"{settings.audio_base_url}/stream/{filename}?ts={int(time.time())}"
 
     return {
         "session_id": session_id,

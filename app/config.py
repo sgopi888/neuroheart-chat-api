@@ -39,7 +39,7 @@ class Settings:
     debug_prompt_max_chars: int = int(os.getenv("DEBUG_PROMPT_MAX_CHARS", "200000"))
     # Audio / meditation settings
     hf_token: str = os.getenv("HF_TOKEN", "")
-    hf_space: str = os.getenv("HF_SPACE", "NeuroHeart2026/voice-agent")
+    hf_space: str = os.getenv("HF_SPACE", "NNeuroHeart2026/voice-agent")
     elevenlabs_api_key: str = os.getenv("ELEVENLABS_API", "")
     audio_storage_dir: str = os.getenv("AUDIO_STORAGE_DIR", "/opt/neuroheart/audio")
     audio_base_url: str = os.getenv("AUDIO_BASE_URL", "https://neuroheart.ai/audio")

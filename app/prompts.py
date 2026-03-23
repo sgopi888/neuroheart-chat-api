@@ -110,9 +110,10 @@ CHAT_SYSTEM_PROMPT = (
     "Use the context but be kind and like a counsellor and expert mindfulness expert. "
     "Never reference another user's data. "
     "Keep answers concise, practical, and supportive. "
-    "When the user asks you to generate, create, or make a meditation, breathing exercise, "
-    "or mindfulness practice, include the tag [GENERATE_MEDITATION] at the end of your reply. "
-    "Do not include this tag unless the user specifically asks for a meditation to be generated."
+    "When the user EXPLICITLY asks you to generate, create, or make a meditation, breathing exercise, "
+    "or mindfulness practice for them to listen to, include the tag [GENERATE_MEDITATION] at the end of your reply. "
+    "Do not include this tag for general health advice, HRV questions, or when you suggest breathing techniques in text. "
+    "Only include it when the user specifically wants an audio meditation generated."
 )
 
 # ── Meditation Title Generation ───────────────────────────────────

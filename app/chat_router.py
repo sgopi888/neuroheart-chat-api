@@ -75,24 +75,10 @@ def history(
 
 _MEDITATION_TAG = "[GENERATE_MEDITATION]"
 
-# Keywords in user message that indicate a meditation request
-_MEDITATION_USER_KEYWORDS = [
-    "generate meditation", "generate a meditation", "create a meditation",
-    "make me a meditation", "make a meditation", "breathing exercise",
-    "generate breathing", "create a breathing", "mindfulness exercise",
-    "guided meditation", "can you make me a meditation",
-    "create meditation", "make meditation",
-]
 
-
-def _detect_meditation_request(user_message: str, llm_reply: str) -> bool:
-    """Check if the user asked for or the LLM suggested generating a meditation."""
-    # Check LLM reply for the tag
-    if _MEDITATION_TAG in llm_reply:
-        return True
-    # Check user message for keywords
-    msg_lower = user_message.lower()
-    return any(kw in msg_lower for kw in _MEDITATION_USER_KEYWORDS)
+def _detect_meditation_request(llm_reply: str) -> bool:
+    """Check if the LLM included the meditation generation tag in its reply."""
+    return _MEDITATION_TAG in llm_reply
 
 
 @router.post("", response_model=ChatResponse)
@@ -127,8 +113,8 @@ async def chat(
         reply_lower = reply.lower()
         is_calendar = any(kw in reply_lower for kw in cal_keywords)
 
-        # Detect meditation generation request
-        is_meditation = _detect_meditation_request(req.message, reply)
+        # Detect meditation generation request (LLM tag only)
+        is_meditation = _detect_meditation_request(reply)
 
         # Strip the tag from the reply shown to user
         if _MEDITATION_TAG in reply:

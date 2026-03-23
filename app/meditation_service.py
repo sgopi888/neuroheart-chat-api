@@ -77,7 +77,8 @@ async def _generate_ssml_script(
         user_message=prompt_template,
         hrv_range="7d",
     )
-    return response["reply"]
+    script = response["reply"].replace("[GENERATE_MEDITATION]", "").strip()
+    return script
 
 
 async def _generate_title(script: str, mood: str) -> str:

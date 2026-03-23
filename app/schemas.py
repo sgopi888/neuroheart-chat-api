@@ -52,6 +52,10 @@ class ChatResponse(BaseModel):
     used_context: bool
     hrv_range: str
     rag_k: int
+    generate_meditation: bool = False
+    meditation_audio_url: Optional[str] = None
+    meditation_title: Optional[str] = None
+    meditation_session_id: Optional[str] = None
 
 
 class PracticeRequest(BaseModel):

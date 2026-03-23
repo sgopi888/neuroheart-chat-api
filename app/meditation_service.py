@@ -19,10 +19,12 @@ from app.history_repository import (
     enforce_audio_limit,
     insert_audio_narration,
 )
+from app.openai_client import call_gpt_mem0
 from app.prompts import (
     MEDITATION_GENERATION_LONG_PROMPT,
     MEDITATION_GENERATION_MEDIUM_PROMPT,
     MEDITATION_GENERATION_SHORT_PROMPT,
+    MEDITATION_TITLE_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,6 +78,26 @@ async def _generate_ssml_script(
         hrv_range="7d",
     )
     return response["reply"]
+
+
+async def _generate_title(script: str, mood: str) -> str:
+    """Ask LLM for a unique 3-5 word title based on the script and mood."""
+    excerpt = script[:500]
+    prompt = MEDITATION_TITLE_PROMPT.format(mood=mood, excerpt=excerpt)
+    try:
+        title = await asyncio.to_thread(
+            call_gpt_mem0,
+            [{"role": "user", "content": prompt}],
+        )
+        # Clean up: strip quotes, limit length
+        title = title.strip().strip('"').strip("'")
+        if len(title) > 60:
+            title = title[:60]
+        return title
+    except Exception:
+        logger.exception("Title generation failed, using fallback")
+        import datetime
+        return f"Meditation: {mood} {datetime.date.today().isoformat()}"
 
 
 async def _generate_voice(script_text: str, session_id: str) -> str | None:
@@ -283,10 +305,8 @@ async def generate_meditation(
     except Exception:
         pass
 
-    # Step 4: Save to DB
-    import datetime
-
-    title = f"Meditation: {mood} {datetime.date.today().isoformat()}"
+    # Step 4: Generate unique title via LLM
+    title = await _generate_title(script, mood)
 
     insert_audio_narration(
         user_uid=user_uid,

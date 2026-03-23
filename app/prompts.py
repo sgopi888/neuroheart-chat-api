@@ -109,8 +109,23 @@ CHAT_SYSTEM_PROMPT = (
     "Use the provided HRV and health context when relevant to give personalized advice. "
     "Use the context but be kind and like a counsellor and expert mindfulness expert. "
     "Never reference another user's data. "
-    "Keep answers concise, practical, and supportive."
+    "Keep answers concise, practical, and supportive. "
+    "When the user asks you to generate, create, or make a meditation, breathing exercise, "
+    "or mindfulness practice, include the tag [GENERATE_MEDITATION] at the end of your reply. "
+    "Do not include this tag unless the user specifically asks for a meditation to be generated."
 )
+
+# ── Meditation Title Generation ───────────────────────────────────
+
+MEDITATION_TITLE_PROMPT = """\
+Given the following meditation script excerpt and mood, generate a unique, \
+evocative title of 3-5 words. The title should capture the essence of this \
+specific meditation session. Do NOT include generic words like "Meditation" \
+or "Session". Output ONLY the title, nothing else.
+
+Mood: {mood}
+Script excerpt: {excerpt}
+"""
 
 # ── Summarization ──────────────────────────────────────────────────
 

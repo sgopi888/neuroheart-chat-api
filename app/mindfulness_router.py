@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/mindfulness", tags=["mindfulness"])
 
 
-# --- Schemas ---
+# --- Schemas --- # redo
 
 class RRInterval(BaseModel):
     rr_interval_ms: float

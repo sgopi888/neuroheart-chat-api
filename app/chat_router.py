@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -81,6 +82,43 @@ def _detect_meditation_request(llm_reply: str) -> bool:
     return _MEDITATION_TAG in llm_reply
 
 
+async def _generate_meditation_background(
+    user_uid: str, conversation_id: str,
+) -> None:
+    """Run meditation generation in the background and insert result into chat."""
+    try:
+        med_result = await generate_meditation(
+            user_uid=user_uid,
+            conversation_id=conversation_id,
+            mood="calm",
+            depth=None,
+            duration=5,
+            session_type="meditation",
+        )
+        med_message = (
+            f"Here's your meditation: {med_result['title']}\n"
+            f"[MEDITATION_AUDIO:{med_result['audio_url']}]"
+        )
+        insert_message(
+            user_uid=user_uid,
+            conversation_id=conversation_id,
+            role="assistant",
+            content=med_message,
+            metadata={
+                "type": "meditation_link",
+                "session_id": med_result["session_id"],
+                "audio_url": med_result["audio_url"],
+                "title": med_result["title"],
+            },
+        )
+        logger.info(
+            "Background meditation generated: session=%s title=%s",
+            med_result["session_id"], med_result["title"],
+        )
+    except Exception as exc:
+        logger.exception("Background meditation generation failed: %s", exc)
+
+
 @router.post("", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
@@ -120,45 +158,13 @@ async def chat(
         if _MEDITATION_TAG in reply:
             reply = reply.replace(_MEDITATION_TAG, "").strip()
 
-        meditation_audio_url = None
-        meditation_title = None
-        meditation_session_id = None
-
-        # Auto-generate meditation if triggered
+        # Fire-and-forget background meditation generation if triggered
         if is_meditation:
-            try:
-                med_result = await generate_meditation(
-                    user_uid=req.user_uid,
-                    conversation_id=req.conversation_id,
-                    mood="calm",
-                    depth=None,
-                    duration=5,
-                    session_type="meditation",
+            asyncio.create_task(
+                _generate_meditation_background(
+                    req.user_uid, req.conversation_id,
                 )
-                meditation_audio_url = med_result["audio_url"]
-                meditation_title = med_result["title"]
-                meditation_session_id = med_result["session_id"]
-
-                # Insert meditation link as assistant message in chat history
-                med_message = (
-                    f"Here's your meditation: {meditation_title}\n"
-                    f"[MEDITATION_AUDIO:{meditation_audio_url}]"
-                )
-                insert_message(
-                    user_uid=req.user_uid,
-                    conversation_id=req.conversation_id,
-                    role="assistant",
-                    content=med_message,
-                    metadata={
-                        "type": "meditation_link",
-                        "session_id": meditation_session_id,
-                        "audio_url": meditation_audio_url,
-                        "title": meditation_title,
-                    },
-                )
-            except Exception as exc:
-                logger.exception("Auto meditation generation failed: %s", exc)
-                # Don't fail the whole chat response if meditation fails
+            )
 
         return {
             "conversation_id": req.conversation_id,
@@ -169,9 +175,9 @@ async def chat(
             "hrv_range": req.hrv_range,
             "rag_k": out["rag_k"],
             "generate_meditation": is_meditation,
-            "meditation_audio_url": meditation_audio_url,
-            "meditation_title": meditation_title,
-            "meditation_session_id": meditation_session_id,
+            "meditation_audio_url": None,
+            "meditation_title": None,
+            "meditation_session_id": None,
         }
     except LookupError:
         raise HTTPException(status_code=404, detail="conversation_not_found")

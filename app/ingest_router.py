@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import psycopg
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.config import settings
 
@@ -30,6 +30,8 @@ ALLOWED_SAMPLE_TYPES = {
 # --- Schemas ---
 
 class SampleIn(BaseModel):
+    model_config = {"extra": "allow"}
+
     sample_type: str
     start_time: str
     end_time: Optional[str] = None
@@ -37,6 +39,15 @@ class SampleIn(BaseModel):
     unit: Optional[str] = None
     source: Optional[str] = None
     payload: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def _map_sdnn_value(self):
+        """iOS sends 'sdnn_value' instead of 'value' for hrv_sdnn samples."""
+        if self.value is None and self.sample_type == "hrv_sdnn":
+            sdnn = (self.model_extra or {}).get("sdnn_value")
+            if sdnn is not None:
+                self.value = float(sdnn)
+        return self
 
 class IngestRequest(BaseModel):
     user_id: str = Field(min_length=8, max_length=128)
@@ -64,7 +75,7 @@ def _extract_rr_from_payload(payload: Dict[str, Any]) -> List[float]:
     return [entry["rr_interval_ms"] for entry in rr_list if isinstance(entry, dict) and "rr_interval_ms" in entry]
 
 def _extract_rr_from_bpm(payload: Dict[str, Any]) -> List[float]:
-    bpm_list = payload.get("beat_to_beat_bpm", [])
+    bpm_list = payload.get("beat_to_beat_bpm") or payload.get("beat_to_beat_metadata") or []
     return [60000.0 / b.get("bpm") for b in bpm_list if isinstance(b, dict) and b.get("bpm", 0) > 20]
 
 # --- Endpoints ---
@@ -73,7 +84,20 @@ def _extract_rr_from_bpm(payload: Dict[str, Any]) -> List[float]:
 async def ingest_health_data(body: IngestRequest):
     if not body.samples:
         raise HTTPException(status_code=400, detail="Samples list is empty")
-    
+
+    # Log incoming sample breakdown for debugging
+    type_counts: Dict[str, int] = {}
+    null_values = []
+    null_payloads = []
+    for s in body.samples:
+        type_counts[s.sample_type] = type_counts.get(s.sample_type, 0) + 1
+        if s.value is None and s.sample_type in ("hrv_sdnn", "hrv", "heart_rate"):
+            null_values.append(s.sample_type)
+        if s.payload is None and s.sample_type == "heartbeat_series":
+            null_payloads.append(s.sample_type)
+    logger.info("Ingest user=%s counts=%s null_values=%d null_payloads=%d",
+                body.user_id[:12], type_counts, len(null_values), len(null_payloads))
+
     # 1. Separate heartbeat series
     regular_samples = [s for s in body.samples if s.sample_type != "heartbeat_series"]
     heartbeat_samples = [s for s in body.samples if s.sample_type == "heartbeat_series"]

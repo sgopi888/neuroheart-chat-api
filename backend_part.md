@@ -1,3 +1,71 @@
+
+## Backend Developer Instructions (hand off separately)
+
+### 1. Unique meditation titles
+**File:** `app/meditation_service.py`
+After generating the SSML script, call LLM for a short contextual title (3-5 words) instead of hardcoding `f"Meditation: {mood} {date}"`. Use the script excerpt + mood as input. Store the unique title in `audio_narrations.title`.
+
+### 2. Add `generate_meditation` flag to chat response
+**File:** `app/schemas.py`
+```python
+class ChatResponse(BaseModel):
+    # ... existing fields ...
+    generate_meditation: bool = False
+```
+
+**File:** `app/chat_router.py`
+After calling `chat_once()`, detect if the user asked for meditation OR if the LLM suggests one. Options:
+- Keyword detection in user message: "generate meditation", "can you make me a meditation", "breathing exercise", etc.
+- OR add instruction to system prompt telling LLM to include `[GENERATE_MEDITATION]` tag in its reply when appropriate, then parse it out server-side
+
+When detected, set `generate_meditation = True` in response.
+
+### 3. Auto-generate meditation when triggered
+**File:** `app/chat_router.py`
+When `generate_meditation` is true:
+1. Call `generate_meditation()` from `meditation_service.py` using the same `conversation_id` (so it gets the chat history context)
+2. Extract `audio_url` and `title` from the result
+3. Insert an assistant message into the conversation: `"Here's your meditation: {title}\n[MEDITATION_AUDIO:{audio_url}]"`
+4. Return the normal chat reply + set `generate_meditation: true` so frontend knows
+
+### 4. Post meditation link as assistant message
+**File:** `app/meditation_router.py` or `app/chat_router.py`
+After `generate_meditation()` returns, insert a new row in `chat_messages` with:
+- `conversation_id`: same as current chat
+- `role`: "assistant"
+- `content`: formatted string with audio URL that frontend can parse
+- This makes the meditation link appear in chat history even if user reloads
+
+### 5. System prompt update for meditation awareness
+**File:** `app/prompts.py`
+Add to `CHAT_SYSTEM_PROMPT`:
+```
+When the user asks you to generate, create, or make a meditation, breathing exercise,
+or mindfulness practice, include the tag [GENERATE_MEDITATION] at the end of your reply.
+Do not include this tag unless the user specifically asks for a meditation to be generated.
+```
+
+### Summary for backend dev
+| Task | File | Priority |
+|------|------|----------|
+| Unique LLM-generated titles per meditation | `meditation_service.py` | HIGH |
+| Add `generate_meditation: bool` to ChatResponse | `schemas.py` | HIGH |
+| Detect meditation request in chat + set flag | `chat_router.py` | HIGH |
+| Auto-generate meditation when flag is set | `chat_router.py` | HIGH |
+| Insert meditation link as assistant message | `chat_router.py` | HIGH |
+| Update system prompt with meditation tag instruction | `prompts.py` | MEDIUM |
+
+---
+
+## Verification
+1. Past sessions: fonts visibly larger, each title unique, date+time shown
+2. Chat: meditation button visible in header → generates → link appears in chat → tappable → opens in Practice tab
+3. Chat: type "generate a meditation" → LLM responds → meditation auto-generated → link in chat
+4. Chat: long-press any assistant message → "Speak" option → iOS TTS reads it
+5. Practice tab: all generated meditations (from chat + practice) appear in past sessions
+
+
+Frontend (not yours but for info) 
 # Practice + Chat Meditation Integration Plan
 
 ## Context
@@ -131,68 +199,3 @@ The context menu already has "Copy" and "Speak" options. "Speak" already calls `
 3. **Phase 2** last (chat integration) — needs backend changes, most complex
 
 ---
-
-## Backend Developer Instructions (hand off separately)
-
-### 1. Unique meditation titles
-**File:** `app/meditation_service.py`
-After generating the SSML script, call LLM for a short contextual title (3-5 words) instead of hardcoding `f"Meditation: {mood} {date}"`. Use the script excerpt + mood as input. Store the unique title in `audio_narrations.title`.
-
-### 2. Add `generate_meditation` flag to chat response
-**File:** `app/schemas.py`
-```python
-class ChatResponse(BaseModel):
-    # ... existing fields ...
-    generate_meditation: bool = False
-```
-
-**File:** `app/chat_router.py`
-After calling `chat_once()`, detect if the user asked for meditation OR if the LLM suggests one. Options:
-- Keyword detection in user message: "generate meditation", "can you make me a meditation", "breathing exercise", etc.
-- OR add instruction to system prompt telling LLM to include `[GENERATE_MEDITATION]` tag in its reply when appropriate, then parse it out server-side
-
-When detected, set `generate_meditation = True` in response.
-
-### 3. Auto-generate meditation when triggered
-**File:** `app/chat_router.py`
-When `generate_meditation` is true:
-1. Call `generate_meditation()` from `meditation_service.py` using the same `conversation_id` (so it gets the chat history context)
-2. Extract `audio_url` and `title` from the result
-3. Insert an assistant message into the conversation: `"Here's your meditation: {title}\n[MEDITATION_AUDIO:{audio_url}]"`
-4. Return the normal chat reply + set `generate_meditation: true` so frontend knows
-
-### 4. Post meditation link as assistant message
-**File:** `app/meditation_router.py` or `app/chat_router.py`
-After `generate_meditation()` returns, insert a new row in `chat_messages` with:
-- `conversation_id`: same as current chat
-- `role`: "assistant"
-- `content`: formatted string with audio URL that frontend can parse
-- This makes the meditation link appear in chat history even if user reloads
-
-### 5. System prompt update for meditation awareness
-**File:** `app/prompts.py`
-Add to `CHAT_SYSTEM_PROMPT`:
-```
-When the user asks you to generate, create, or make a meditation, breathing exercise,
-or mindfulness practice, include the tag [GENERATE_MEDITATION] at the end of your reply.
-Do not include this tag unless the user specifically asks for a meditation to be generated.
-```
-
-### Summary for backend dev
-| Task | File | Priority |
-|------|------|----------|
-| Unique LLM-generated titles per meditation | `meditation_service.py` | HIGH |
-| Add `generate_meditation: bool` to ChatResponse | `schemas.py` | HIGH |
-| Detect meditation request in chat + set flag | `chat_router.py` | HIGH |
-| Auto-generate meditation when flag is set | `chat_router.py` | HIGH |
-| Insert meditation link as assistant message | `chat_router.py` | HIGH |
-| Update system prompt with meditation tag instruction | `prompts.py` | MEDIUM |
-
----
-
-## Verification
-1. Past sessions: fonts visibly larger, each title unique, date+time shown
-2. Chat: meditation button visible in header → generates → link appears in chat → tappable → opens in Practice tab
-3. Chat: type "generate a meditation" → LLM responds → meditation auto-generated → link in chat
-4. Chat: long-press any assistant message → "Speak" option → iOS TTS reads it
-5. Practice tab: all generated meditations (from chat + practice) appear in past sessions

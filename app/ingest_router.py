@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
 from app.config import settings
+from app.hrv_bpm_per_min import process_bpm_session, save_session_results, load_cross_session_baseline
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["ingest"])
@@ -137,7 +138,28 @@ async def ingest_health_data(body: IngestRequest):
                 )
                 ingested += 1
 
-            # 4. Handle HRV SDNN Metadata (Query 1)
+            # 4. Run BPM-to-calm-score pipeline on heartbeat series
+            for s in heartbeat_samples:
+                if not s.payload:
+                    continue
+                # Watch sends rr_intervals; hrv_sdnn sends beat_to_beat_bpm
+                bpm_list = (s.payload.get("rr_intervals")
+                            or s.payload.get("beat_to_beat_bpm")
+                            or [])
+                if len(bpm_list) < 60:
+                    logger.info("Skipping BPM pipeline: only %d samples", len(bpm_list))
+                    continue
+                try:
+                    cross_bl = load_cross_session_baseline(body.user_id)
+                    snapshots, summary = process_bpm_session(bpm_list, cross_bl)
+                    if snapshots:
+                        saved = save_session_results(body.user_id, s.start_time, snapshots, summary)
+                        logger.info("BPM pipeline: %d snapshots, avg_calm=%.1f, saved=%d rows",
+                                    len(snapshots), summary.avg_calm_score, saved)
+                except Exception:
+                    logger.exception("BPM pipeline failed for user=%s", body.user_id[:12])
+
+            # 5. Handle HRV SDNN Metadata (Query 1)
             # Post-process the newly added regular samples of type hrv_sdnn to add metrics
             cur.execute(
                 "SELECT id, payload FROM health_samples WHERE user_id = %s AND sample_type = 'hrv_sdnn' AND payload IS NOT NULL AND NOT (payload ? 'computed_metrics')",

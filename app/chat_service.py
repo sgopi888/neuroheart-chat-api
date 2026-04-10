@@ -193,6 +193,28 @@ def _format_hrv_compact(hrv: Dict[str, Any]) -> str:
     if agg_parts:
         parts.append("HEALTH_90D:\n" + "; ".join(agg_parts))
 
+    # Calm score sessions (meditation stress analysis)
+    calm = hrv.get("calm_score_sessions")
+    if calm:
+        rows = []
+        for s in calm:
+            row = f"{s.get('date', '?')}: calm={s.get('avg_calm_score', '-')}"
+            if s.get("hr_delta") is not None:
+                row += f", hr_delta={s['hr_delta']}"
+            if s.get("hf_pct_change") is not None:
+                row += f", hf_change={s['hf_pct_change']}%"
+            if s.get("breath_start") and s.get("breath_end"):
+                row += f", breath={s['breath_start']}->{s['breath_end']}bpm"
+            if s.get("duration_s"):
+                row += f", dur={int(s['duration_s'])}s"
+            if s.get("time_in_recovery_pct"):
+                row += f", recovery={s['time_in_recovery_pct']}%"
+            rows.append(row)
+        parts.append(
+            "MEDITATION_CALM_SCORES (recent sessions — calm 0-100, higher=calmer):\n"
+            + "\n".join(rows)
+        )
+
     return "\n\n".join(parts)
 
 

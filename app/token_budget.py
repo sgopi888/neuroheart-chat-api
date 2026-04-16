@@ -10,7 +10,9 @@ logger = logging.getLogger(__name__)
 # cl100k_base covers gpt-4o, gpt-4o-mini, gpt-4, gpt-3.5-turbo
 _ENC = tiktoken.get_encoding("cl100k_base")
 
-MAX_TOKENS = 100_000
+from app.config import settings
+
+MAX_TOKENS = settings.max_context_tokens
 
 
 def count_tokens(text: str) -> int:

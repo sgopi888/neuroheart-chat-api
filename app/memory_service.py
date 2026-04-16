@@ -31,13 +31,13 @@ from app.prompts import CROSS_CHAT_PROFILE_PROMPT, MEMORY_EXTRACTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
+from app.config import settings as _cfg
+
 _MEMORY_COLLECTION = "user_memories"
 _EMBEDDING_DIM = 1536
-_MAX_MEMORIES_PER_USER = 200
-_RETRIEVAL_TOP_K = 5
-
-# Throttle: skip extraction if user message is shorter than this
-_MIN_USER_MSG_LENGTH = 40
+_MAX_MEMORIES_PER_USER = _cfg.memory_max_per_user
+_RETRIEVAL_TOP_K = _cfg.memory_retrieval_top_k
+_MIN_USER_MSG_LENGTH = _cfg.memory_min_msg_length
 
 _qdrant: QdrantClient | None = None
 _openai: OpenAI | None = None

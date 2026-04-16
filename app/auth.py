@@ -25,7 +25,8 @@ _APPLE_ISSUER = "https://appleid.apple.com"
 # Cache Apple's public keys (refresh every 24h)
 _cached_keys: list = []
 _keys_fetched_at: float = 0
-_KEYS_TTL = 86400  # 24 hours
+from app.config import settings as _cfg
+_KEYS_TTL = _cfg.auth_apple_keys_ttl
 
 
 def _fetch_apple_keys() -> list:

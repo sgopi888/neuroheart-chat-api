@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 from typing import Any, Dict, List, Optional
 
 import psycopg
@@ -15,9 +14,10 @@ from app.hrv_bpm_per_min import process_bpm_session, save_session_results, load_
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["ingest"])
 
-# --- Limits ---
-MAX_SAMPLES_PER_REQUEST = 5000
-MAX_HEARTBEAT_SESSIONS = 5  # keep last 5 sessions with raw RR intervals for the AI
+from app.config import settings as _cfg
+
+MAX_SAMPLES_PER_REQUEST = _cfg.ingest_max_samples
+MAX_HEARTBEAT_SESSIONS = _cfg.ingest_max_heartbeat_sessions
 
 ALLOWED_SAMPLE_TYPES = {
     "heart_rate",
@@ -54,22 +54,10 @@ class IngestRequest(BaseModel):
     user_id: str = Field(min_length=8, max_length=128)
     samples: List[SampleIn]
 
-# --- HRV Logic ---
+from app.hrv_utils import compute_hrv_from_rr as _compute_hrv_from_rr_shared
 
 def _compute_hrv_from_rr(rr_intervals: List[float]) -> Optional[Dict[str, Any]]:
-    if len(rr_intervals) < 10: return None
-    n = len(rr_intervals)
-    mean_nn = sum(rr_intervals) / n
-    variance = sum((x - mean_nn) ** 2 for x in rr_intervals) / (n - 1)
-    sdnn = math.sqrt(variance)
-    diffs = [rr_intervals[i+1] - rr_intervals[i] for i in range(n-1)]
-    rmssd = math.sqrt(sum(d**2 for d in diffs)/len(diffs))
-    return {
-        "sdnn": round(sdnn, 2),
-        "rmssd": round(rmssd, 2),
-        "beat_count": n,
-        "mean_hr": round(60000.0 / mean_nn, 1) if mean_nn > 0 else None
-    }
+    return _compute_hrv_from_rr_shared(rr_intervals, min_count=10)
 
 def _extract_rr_from_payload(payload: Dict[str, Any]) -> List[float]:
     rr_list = payload.get("rr_intervals", [])

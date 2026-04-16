@@ -43,6 +43,61 @@ class Settings:
     elevenlabs_api_key: str = os.getenv("ELEVENLABS_API", "")
     audio_storage_dir: str = os.getenv("AUDIO_STORAGE_DIR", "/opt/neuroheart/audio")
     audio_base_url: str = os.getenv("AUDIO_BASE_URL", "https://neuroheart.ai/audio")
+    comfy_tts_url: str = os.getenv("COMFY_TTS_URL", "http://127.0.0.1:8844")
+    comfy_tts_timeout: float = float(os.getenv("COMFY_TTS_TIMEOUT", "180"))
+
+    # ── Hyperparameters (tunable, non-env) ──────────────────────────
+
+    # Rate limiting
+    rate_limit_capacity: float = 20.0
+    rate_limit_refill_per_sec: float = 20.0 / 60.0
+
+    # Token budget
+    max_context_tokens: int = 100_000
+
+    # Chat service
+    chat_recent_turns: int = 10
+    chat_summarize_threshold: int = 50
+    chat_history_token_trigger: int = 50_000
+    chat_rag_chunk_tokens: int = 300
+    chat_rag_max_chunks: int = 20
+    chat_summary_max_tokens: int = 800
+
+    # HRV client
+    hrv_max_daily_rows: int = 14
+    hrv_client_timeout: float = 2.0
+
+    # HRV Apple
+    hrv_daily_window: int = 14
+    hrv_agg_window: int = 90
+    hrv_trend_threshold: float = 0.05
+
+    # Ingest
+    ingest_max_samples: int = 5000
+    ingest_max_heartbeat_sessions: int = 5
+
+    # Memory service
+    memory_max_per_user: int = 200
+    memory_retrieval_top_k: int = 5
+    memory_min_msg_length: int = 40
+    memory_duplicate_threshold: float = 0.92
+    memory_cross_chat_max_lines: int = 50
+    memory_cross_chat_max_age_days: int = 30
+
+    # Meditation service
+    meditation_music_length_ms: int = 60000
+    meditation_max_stored: int = 25
+
+    # RAG service
+    rag_collection: str = "documents1"
+    rag_max_passage_chars: int = 600
+
+    # Auth
+    auth_apple_keys_ttl: int = 86400
+
+    # Mindfulness thresholds
+    mindfulness_sdnn_threshold: int = 2
+    mindfulness_rmssd_threshold: int = 3
 
 
 settings = Settings()

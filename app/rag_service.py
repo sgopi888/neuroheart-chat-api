@@ -11,8 +11,9 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_COLLECTION = "documents1"
-_MAX_PASSAGE_CHARS = 600
+from app.config import settings as _cfg
+_COLLECTION = _cfg.rag_collection
+_MAX_PASSAGE_CHARS = _cfg.rag_max_passage_chars
 
 _qdrant: QdrantClient | None = None
 _openai: OpenAI | None = None

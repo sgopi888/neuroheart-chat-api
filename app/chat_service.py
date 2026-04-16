@@ -38,18 +38,14 @@ from app.token_budget import MAX_TOKENS, count_tokens, trim_text_to_tokens
 
 logger = logging.getLogger(__name__)
 
-# How many recent turns to keep verbatim (Layer 1 — short-term window)
-_RECENT_TURNS = 10
-# Summarize when total messages exceed this threshold (Layer 3 — rolling summary)
-_SUMMARIZE_THRESHOLD = 50
-# Trigger when older messages exceed this many tokens
-_HISTORY_TOKEN_TRIGGER = 50_000
-# Max tokens per RAG chunk
-_RAG_CHUNK_TOKENS = 300
-# Max RAG chunks
-_RAG_MAX_CHUNKS = 20
-# Max tokens for a summary produced by GPT
-_SUMMARY_MAX_TOKENS = 800
+from app.config import settings as _cfg
+
+_RECENT_TURNS = _cfg.chat_recent_turns
+_SUMMARIZE_THRESHOLD = _cfg.chat_summarize_threshold
+_HISTORY_TOKEN_TRIGGER = _cfg.chat_history_token_trigger
+_RAG_CHUNK_TOKENS = _cfg.chat_rag_chunk_tokens
+_RAG_MAX_CHUNKS = _cfg.chat_rag_max_chunks
+_SUMMARY_MAX_TOKENS = _cfg.chat_summary_max_tokens
 
 
 def _system_prompt() -> str:

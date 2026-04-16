@@ -3,15 +3,15 @@ from __future__ import annotations
 import time
 from typing import Dict, Tuple
 
-# In-memory token bucket per user_uid.
-# 20 requests per minute = capacity 20, refill rate 20/60 per second.
+from app.config import settings
+
 _buckets: Dict[str, Tuple[float, float]] = {}
 
 
 def allow(
     user_uid: str,
-    capacity: float = 20.0,
-    refill_per_sec: float = 20.0 / 60.0,
+    capacity: float = settings.rate_limit_capacity,
+    refill_per_sec: float = settings.rate_limit_refill_per_sec,
 ) -> bool:
     now = time.time()
     tokens, last_ts = _buckets.get(user_uid, (capacity, now))

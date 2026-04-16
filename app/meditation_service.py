@@ -158,16 +158,87 @@ async def _generate_voice(script_text: str, session_id: str) -> str | None:
         return None
 
 
+async def _generate_narration_via_comfy(
+    script_text: str,
+    music_config: Optional[Dict],
+    session_id: str,
+    duration_minutes: int,
+) -> str | None:
+    """Fallback: call the Comfy TTS `/narration` endpoint which returns a merged
+    voice+music MP3 in a single call. Returns the saved merged file path, or None.
+    """
+    if not settings.comfy_tts_url:
+        return None
+
+    music_prompt = _build_music_prompt(music_config)
+    music_seconds = max(30, min(duration_minutes * 60, 600))
+
+    payload = {
+        "tts": {"text": script_text, "speed": 0.75},
+        "music": {"prompt": music_prompt, "duration_seconds": music_seconds},
+        "music_gain_db": -18,
+    }
+
+    try:
+        import httpx
+
+        url = f"{settings.comfy_tts_url.rstrip('/')}/narration"
+        async with httpx.AsyncClient(timeout=settings.comfy_tts_timeout) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            audio_bytes = resp.content
+
+        dest = os.path.join(settings.audio_storage_dir, f"{session_id}_merged.mp3")
+        with open(dest, "wb") as f:
+            f.write(audio_bytes)
+        logger.info(
+            "Comfy /narration fallback saved: %s (%d bytes)", dest, len(audio_bytes)
+        )
+        return dest
+    except Exception:
+        logger.exception("Comfy /narration fallback failed")
+        return None
+
+
+_FALLBACK_MUSIC_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "assets", "fallback_music.mp3"
+)
+
+
+def _use_fallback_music(session_id: str, reason: str) -> Optional[str]:
+    """Copy the bundled fallback music into the session's storage slot.
+
+    Returns the copied path on success, or None if the fallback asset is
+    missing from disk.
+    """
+    if not os.path.exists(_FALLBACK_MUSIC_PATH):
+        logger.warning(
+            "Music fallback requested (%s) but no asset at %s",
+            reason, _FALLBACK_MUSIC_PATH,
+        )
+        return None
+    dest = os.path.join(settings.audio_storage_dir, f"{session_id}_music.mp3")
+    try:
+        shutil.copy2(_FALLBACK_MUSIC_PATH, dest)
+        logger.info("Music fallback used (%s): %s", reason, dest)
+        return dest
+    except Exception:
+        logger.exception("Failed to copy fallback music")
+        return None
+
+
 async def _generate_music(
     music_config: Optional[Dict], session_id: str
 ) -> str | None:
-    """Generate ambient music via ElevenLabs SDK.
+    """Generate ambient music via ElevenLabs SDK, with fallback to a bundled MP3.
 
-    Generates 1 minute of music. Returns file path or None on failure.
+    Generates 1 minute of music. Falls back to `app/assets/fallback_music.mp3`
+    if ElevenLabs is unconfigured or the API call fails, so a missing/flaky
+    music provider never blocks meditation audio production.
     """
     if not settings.elevenlabs_api_key:
-        logger.warning("ELEVENLABS_API not configured, skipping music generation")
-        return None
+        logger.warning("ELEVENLABS_API not configured, using music fallback")
+        return _use_fallback_music(session_id, "elevenlabs_unconfigured")
 
     music_prompt = _build_music_prompt(music_config)
 
@@ -192,8 +263,8 @@ async def _generate_music(
         return dest
 
     except Exception:
-        logger.exception("Music generation failed")
-        return None
+        logger.exception("Music generation failed — using fallback")
+        return _use_fallback_music(session_id, "elevenlabs_error")
 
 
 def _merge_audio(voice_path: str, music_path: str, session_id: str) -> str:
@@ -280,21 +351,31 @@ async def generate_meditation(
     if isinstance(music_result, Exception):
         logger.error("Music generation raised: %s", music_result)
 
+    # If HF voice failed, fall back to Comfy /narration which returns a
+    # pre-merged voice+music MP3. Short-circuits separate music + merge.
+    merged_path: str | None = None
     if not voice_path:
-        raise RuntimeError("Voice generation failed — cannot produce meditation audio")
-
-    # Step 3: Merge if music available, otherwise use voice-only
-    if music_path:
-        try:
-            merged_path = await asyncio.to_thread(
-                _merge_audio, voice_path, music_path, session_id
+        logger.warning("HF voice failed — trying Comfy /narration fallback")
+        merged_path = await _generate_narration_via_comfy(
+            script, music_config, session_id, duration
+        )
+        if not merged_path:
+            raise RuntimeError(
+                "Voice generation failed — cannot produce meditation audio"
             )
-        except Exception:
-            logger.exception("Merge failed, falling back to voice-only")
-            merged_path = voice_path
     else:
-        logger.warning("No music generated, using voice-only audio")
-        merged_path = voice_path
+        # Step 3: Merge if music available, otherwise use voice-only
+        if music_path:
+            try:
+                merged_path = await asyncio.to_thread(
+                    _merge_audio, voice_path, music_path, session_id
+                )
+            except Exception:
+                logger.exception("Merge failed, falling back to voice-only")
+                merged_path = voice_path
+        else:
+            logger.warning("No music generated, using voice-only audio")
+            merged_path = voice_path
 
     # Calculate duration from merged file
     duration_seconds = None

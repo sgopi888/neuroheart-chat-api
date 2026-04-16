@@ -56,7 +56,7 @@ class Settings:
     max_context_tokens: int = 100_000
 
     # Chat service
-    chat_recent_turns: int = 10
+    chat_recent_turns: int = 15
     chat_summarize_threshold: int = 50
     chat_history_token_trigger: int = 50_000
     chat_rag_chunk_tokens: int = 300

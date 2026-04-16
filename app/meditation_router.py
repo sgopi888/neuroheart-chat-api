@@ -15,6 +15,7 @@ from app.config import settings
 from app.history_repository import (
     delete_audio_narration,
     insert_audio_narration,
+    insert_message,
     list_audio_narrations,
 )
 from app.meditation_service import generate_meditation
@@ -59,6 +60,32 @@ async def generate_meditation_endpoint(
             session_type=req.session_type,
             music_config=music_config,
         )
+
+        # Persist a meditation link message in the conversation so it
+        # survives history reloads on the client.
+        if result.get("audio_url"):
+            title = result.get("title", "Meditation")
+            med_message = (
+                f"🧘 Your meditation is ready: \"{title}\"\n\n"
+                f"Tap to play in the Practice tab.\n"
+                f"[MEDITATION_AUDIO:{result['audio_url']}:{title}]"
+            )
+            try:
+                insert_message(
+                    user_uid=req.user_uid,
+                    conversation_id=req.conversation_id,
+                    role="assistant",
+                    content=med_message,
+                    metadata={
+                        "type": "meditation_link",
+                        "session_id": result.get("session_id"),
+                        "audio_url": result["audio_url"],
+                        "title": title,
+                    },
+                )
+            except Exception:
+                logger.warning("Could not save meditation message to conversation")
+
         return result
 
     except LookupError:
@@ -137,7 +164,7 @@ async def list_audio(
                 duration_seconds=r.get("duration_seconds"),
                 title=r.get("title"),
                 metadata=r.get("metadata"),
-                created_at=str(r["created_at"]),
+                created_at=r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else str(r["created_at"]),
             )
         )
     return {"narrations": narrations}

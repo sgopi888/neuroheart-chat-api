@@ -44,7 +44,7 @@ class Settings:
     audio_storage_dir: str = os.getenv("AUDIO_STORAGE_DIR", "/opt/neuroheart/audio")
     audio_base_url: str = os.getenv("AUDIO_BASE_URL", "https://neuroheart.ai/audio")
     comfy_tts_url: str = os.getenv("COMFY_TTS_URL", "http://127.0.0.1:8844")
-    comfy_tts_timeout: float = float(os.getenv("COMFY_TTS_TIMEOUT", "180"))
+    comfy_tts_timeout: float = float(os.getenv("COMFY_TTS_TIMEOUT", "420"))
 
     # ── Hyperparameters (tunable, non-env) ──────────────────────────
 

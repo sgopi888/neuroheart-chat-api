@@ -29,8 +29,10 @@ from scipy import signal as sp_signal
 from scipy.sparse import diags as sp_diags, eye as sp_eye
 from scipy.sparse.linalg import spsolve
 
-# numpy 2.0 renamed trapz → trapezoid; support both
-_trapz = getattr(np, "trapezoid", None) or _trapz
+# numpy 2.0 renamed trapz -> trapezoid; support both
+_trapz = getattr(np, "trapezoid", None)
+if _trapz is None:
+    _trapz = np.trapz
 
 import psycopg
 

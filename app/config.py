@@ -99,5 +99,10 @@ class Settings:
     mindfulness_sdnn_threshold: int = 2
     mindfulness_rmssd_threshold: int = 3
 
+    @property
+    def database_url_psycopg(self) -> str:
+        """Normalize SQLAlchemy-style URLs for direct psycopg connections."""
+        return self.database_url.replace("+psycopg2", "")
+
 
 settings = Settings()

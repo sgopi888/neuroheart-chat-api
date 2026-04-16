@@ -76,7 +76,7 @@ async def record_session(body: SessionIn):
     if beginning_hrv and ending_hrv:
         hrv_delta = _compute_delta(beginning_hrv, ending_hrv)
 
-    with psycopg.connect(settings.database_url) as conn:
+    with psycopg.connect(settings.database_url_psycopg) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -115,7 +115,7 @@ async def list_sessions(
     limit: int = Query(default=20, le=100),
 ):
     """List past mindfulness sessions with HRV results."""
-    with psycopg.connect(settings.database_url) as conn:
+    with psycopg.connect(settings.database_url_psycopg) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """

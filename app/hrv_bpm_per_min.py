@@ -655,7 +655,7 @@ def save_session_results(
     if not snapshots:
         return 0
 
-    db_url = settings.database_url
+    db_url = settings.database_url_psycopg
     inserted = 0
     _CALM_LINK_WINDOW_S = 120
 
@@ -771,7 +771,7 @@ def save_session_results(
 
 def load_cross_session_baseline(user_id: str) -> Optional[Dict[str, float]]:
     """Load the most recent cross-session baseline for seeding."""
-    db_url = settings.database_url
+    db_url = settings.database_url_psycopg
     with psycopg.connect(db_url) as conn:
         with conn.cursor() as cur:
             cur.execute(

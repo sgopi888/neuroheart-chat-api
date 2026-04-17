@@ -103,12 +103,26 @@ async def record_session(body: SessionIn):
 
     # Full-session HRV from all RR intervals combined
     all_rr_vals = beginning_rr_vals + ending_rr_vals
-    session_hrv = _compute_hrv_from_rr(all_rr_vals)
+
+    # Filter out non-beat-to-beat intervals (>2000ms = inter-sample timestamps, not RR)
+    valid_rr = [v for v in all_rr_vals if 200 <= v <= 2000]
+    session_hrv = _compute_hrv_from_rr(valid_rr) if valid_rr else _compute_hrv_from_rr(all_rr_vals)
+
+    # Also filter beginning/ending individually for proper HRV
+    if beginning_hrv and beginning_rr_vals and any(v > 2000 for v in beginning_rr_vals):
+        filtered_b = [v for v in beginning_rr_vals if 200 <= v <= 2000]
+        beginning_hrv = _compute_hrv_from_rr(filtered_b) if filtered_b else beginning_hrv
+    if ending_hrv and ending_rr_vals and any(v > 2000 for v in ending_rr_vals):
+        filtered_e = [v for v in ending_rr_vals if 200 <= v <= 2000]
+        ending_hrv = _compute_hrv_from_rr(filtered_e) if filtered_e else ending_hrv
+    # Recompute delta with filtered data
+    if beginning_hrv and ending_hrv:
+        hrv_delta = _compute_delta(beginning_hrv, ending_hrv)
 
     # Run calm-score pipeline inline on the RR intervals
     calm_ref = None
     calm_summary = None
-    rr_samples = [{"rr_interval_ms": v} for v in all_rr_vals]
+    rr_samples = [{"rr_interval_ms": v} for v in valid_rr] if valid_rr else []
     if len(rr_samples) >= 30:
         try:
             cross_bl = load_cross_session_baseline(body.user_id)

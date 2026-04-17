@@ -211,6 +211,41 @@ def _format_hrv_compact(hrv: Dict[str, Any]) -> str:
             + "\n".join(rows)
         )
 
+    # Mindfulness sessions with per-track HRV
+    mind = hrv.get("mindfulness_sessions")
+    if mind:
+        rows = []
+        for s in mind:
+            row = f"{s.get('date', '?')} {s.get('duration_minutes', '?')}min"
+            if s.get("mood"):
+                row += f" mood={s['mood']}"
+            # Session HRV
+            hrv_parts = []
+            if s.get("sdnn") is not None:
+                hrv_parts.append(f"sdnn={s['sdnn']}")
+            if s.get("rmssd") is not None:
+                hrv_parts.append(f"rmssd={s['rmssd']}")
+            if s.get("mean_hr") is not None:
+                hrv_parts.append(f"hr={s['mean_hr']}")
+            if hrv_parts:
+                row += f": hrv({','.join(hrv_parts)})"
+            # Delta
+            delta_parts = []
+            if s.get("delta_sdnn") is not None:
+                delta_parts.append(f"sdnn={s['delta_sdnn']:+g}")
+            if s.get("outcome"):
+                delta_parts.append(f"outcome={s['outcome']}")
+            if delta_parts:
+                row += f" delta({','.join(delta_parts)})"
+            # Calm score
+            if s.get("avg_calm_score") is not None:
+                row += f" calm={s['avg_calm_score']}"
+            rows.append(row)
+        parts.append(
+            "MINDFULNESS_SESSIONS (recent tracks with per-session HRV):\n"
+            + "\n".join(rows)
+        )
+
     return "\n\n".join(parts)
 
 

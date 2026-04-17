@@ -38,6 +38,30 @@ class SessionIn(BaseModel):
 
 from app.hrv_utils import compute_hrv_from_rr as _compute_hrv_from_rr
 
+_CALM_LINK_WINDOW_S = 120  # seconds tolerance for matching calm_score_session
+
+
+def _try_link_calm(cur, user_id: str, start_time: str) -> tuple:
+    """Try to find a matching calm_score_session and return (ref_id, summary_dict)."""
+    cur.execute(
+        """
+        SELECT id, payload->'summary' AS summary
+        FROM health_samples
+        WHERE user_id = %s
+          AND sample_type = 'calm_score_session'
+          AND ABS(EXTRACT(EPOCH FROM start_time - %s::timestamptz)) < %s
+        ORDER BY ABS(EXTRACT(EPOCH FROM start_time - %s::timestamptz))
+        LIMIT 1
+        """,
+        (user_id, start_time, _CALM_LINK_WINDOW_S, start_time),
+    )
+    row = cur.fetchone()
+    if row:
+        ref_id = row[0]
+        summary = row[1] if isinstance(row[1], dict) else (json.loads(row[1]) if row[1] else None)
+        return ref_id, summary
+    return None, None
+
 
 def _compute_delta(beginning: Dict, ending: Dict) -> Dict[str, Any]:
     """Compute change between beginning and ending HRV metrics."""
@@ -76,14 +100,23 @@ async def record_session(body: SessionIn):
     if beginning_hrv and ending_hrv:
         hrv_delta = _compute_delta(beginning_hrv, ending_hrv)
 
+    # Full-session HRV from all RR intervals combined
+    all_rr_vals = beginning_rr_vals + ending_rr_vals
+    session_hrv = _compute_hrv_from_rr(all_rr_vals)
+
     with psycopg.connect(settings.database_url_psycopg) as conn:
         with conn.cursor() as cur:
+            # Try to link to an existing calm_score_session
+            calm_ref, calm_summary = _try_link_calm(cur, body.user_id, body.start_time)
+
             cur.execute(
                 """
                 INSERT INTO mindfulness_sessions
                     (user_id, start_time, end_time, duration_minutes, mood, depth, source,
-                     beginning_hrv, ending_hrv, hrv_delta)
-                VALUES (%s, %s::timestamptz, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s)
+                     beginning_hrv, ending_hrv, hrv_delta,
+                     session_hrv, calm_score_ref, calm_summary)
+                VALUES (%s, %s::timestamptz, %s::timestamptz, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -97,6 +130,9 @@ async def record_session(body: SessionIn):
                     json.dumps(beginning_hrv) if beginning_hrv else None,
                     json.dumps(ending_hrv) if ending_hrv else None,
                     json.dumps(hrv_delta) if hrv_delta else None,
+                    json.dumps(session_hrv) if session_hrv else None,
+                    calm_ref,
+                    json.dumps(calm_summary) if calm_summary else None,
                 ),
             )
             session_id = cur.fetchone()[0]
@@ -106,6 +142,8 @@ async def record_session(body: SessionIn):
         "beginning_hrv": beginning_hrv,
         "ending_hrv": ending_hrv,
         "hrv_delta": hrv_delta,
+        "session_hrv": session_hrv,
+        "calm_summary": calm_summary,
     }
 
 
@@ -120,7 +158,8 @@ async def list_sessions(
             cur.execute(
                 """
                 SELECT id, start_time, end_time, duration_minutes, mood, depth, source,
-                       beginning_hrv, ending_hrv, hrv_delta, created_at
+                       beginning_hrv, ending_hrv, hrv_delta, created_at,
+                       session_hrv, calm_score_ref, calm_summary
                 FROM mindfulness_sessions
                 WHERE user_id = %s
                 ORDER BY start_time DESC
@@ -144,6 +183,64 @@ async def list_sessions(
             "ending_hrv": r[8],
             "hrv_delta": r[9],
             "created_at": r[10].isoformat(),
+            "session_hrv": r[11],
+            "calm_score_ref": r[12],
+            "calm_summary": r[13],
         })
 
     return {"user_id": user_id, "sessions": sessions}
+
+
+@router.get("/session/{session_id}")
+async def get_session(session_id: int):
+    """Get a single mindfulness session with full HRV detail and calm score snapshots."""
+    with psycopg.connect(settings.database_url_psycopg) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ms.id, ms.user_id, ms.start_time, ms.end_time,
+                       ms.duration_minutes, ms.mood, ms.depth, ms.source,
+                       ms.beginning_hrv, ms.ending_hrv, ms.hrv_delta,
+                       ms.session_hrv, ms.calm_score_ref, ms.calm_summary,
+                       ms.created_at,
+                       hs.payload AS calm_payload
+                FROM mindfulness_sessions ms
+                LEFT JOIN health_samples hs
+                  ON hs.id = ms.calm_score_ref
+                WHERE ms.id = %s
+                """,
+                (session_id,),
+            )
+            r = cur.fetchone()
+
+    if not r:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    result = {
+        "id": r[0],
+        "user_id": r[1],
+        "start_time": r[2].isoformat(),
+        "end_time": r[3].isoformat(),
+        "duration_minutes": r[4],
+        "mood": r[5],
+        "depth": r[6],
+        "source": r[7],
+        "beginning_hrv": r[8],
+        "ending_hrv": r[9],
+        "hrv_delta": r[10],
+        "session_hrv": r[11],
+        "calm_score_ref": r[12],
+        "calm_summary": r[13],
+        "created_at": r[14].isoformat(),
+    }
+
+    # Include calm score snapshots timeseries if linked
+    calm_payload = r[15]
+    if calm_payload:
+        if isinstance(calm_payload, str):
+            calm_payload = json.loads(calm_payload)
+        result["calm_snapshots"] = calm_payload.get("snapshots")
+    else:
+        result["calm_snapshots"] = None
+
+    return result

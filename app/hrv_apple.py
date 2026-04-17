@@ -53,6 +53,7 @@ def _compute_hrv_context_apple(user_uid: str) -> Dict[str, Any]:
         aggregates = _compute_aggregates(conn, user_uid, _AGG_WINDOW)
 
         calm_sessions = _recent_calm_sessions(conn, user_uid)
+        mindfulness_sessions = _recent_mindfulness_sessions(conn, user_uid)
 
     if (
         not daily_14d
@@ -61,6 +62,7 @@ def _compute_hrv_context_apple(user_uid: str) -> Dict[str, Any]:
         and not hrv_sdnn_daily_hourly_30d
         and not aggregates
         and not calm_sessions
+        and not mindfulness_sessions
     ):
         return {}
 
@@ -75,6 +77,8 @@ def _compute_hrv_context_apple(user_uid: str) -> Dict[str, Any]:
         result["hrv_sdnn_daily_hourly_30d"] = hrv_sdnn_daily_hourly_30d
     if calm_sessions:
         result["calm_score_sessions"] = calm_sessions
+    if mindfulness_sessions:
+        result["mindfulness_sessions"] = mindfulness_sessions
     result.update(aggregates)
     return result
 
@@ -400,6 +404,55 @@ def _recent_calm_sessions(conn: Any, user_uid: str, limit: int = 10) -> List[Dic
             entry["duration_s"] = s.get("duration_s")
             entry["time_in_recovery_pct"] = s.get("time_in_recovery_pct")
             entry["time_in_stress_pct"] = s.get("time_in_stress_pct")
+        sessions.append(entry)
+
+    sessions.reverse()  # chronological order
+    return sessions
+
+
+def _recent_mindfulness_sessions(conn: Any, user_uid: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """Return recent mindfulness sessions with per-track HRV for LLM context."""
+    rows = conn.execute(
+        text("""
+            SELECT start_time AT TIME ZONE 'UTC' AS ts,
+                   duration_minutes,
+                   mood,
+                   depth,
+                   session_hrv,
+                   beginning_hrv,
+                   ending_hrv,
+                   hrv_delta,
+                   calm_summary
+            FROM mindfulness_sessions
+            WHERE user_id = :uid
+            ORDER BY start_time DESC
+            LIMIT :lim
+        """),
+        {"uid": user_uid, "lim": limit},
+    ).fetchall()
+
+    sessions = []
+    for row in rows:
+        entry: Dict[str, Any] = {
+            "date": row.ts.isoformat() if row.ts else None,
+            "duration_minutes": row.duration_minutes,
+            "mood": row.mood,
+            "depth": row.depth,
+        }
+        if row.session_hrv and isinstance(row.session_hrv, dict):
+            h = row.session_hrv
+            entry["sdnn"] = h.get("sdnn")
+            entry["rmssd"] = h.get("rmssd")
+            entry["pnn50"] = h.get("pnn50")
+            entry["mean_hr"] = h.get("mean_hr")
+        if row.hrv_delta and isinstance(row.hrv_delta, dict):
+            entry["delta_sdnn"] = row.hrv_delta.get("sdnn")
+            entry["delta_rmssd"] = row.hrv_delta.get("rmssd")
+            entry["outcome"] = row.hrv_delta.get("outcome")
+        if row.calm_summary and isinstance(row.calm_summary, dict):
+            entry["avg_calm_score"] = row.calm_summary.get("avg_calm_score")
+            entry["time_in_recovery_pct"] = row.calm_summary.get("time_in_recovery_pct")
+            entry["time_in_stress_pct"] = row.calm_summary.get("time_in_stress_pct")
         sessions.append(entry)
 
     sessions.reverse()  # chronological order

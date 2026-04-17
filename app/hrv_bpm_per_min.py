@@ -657,6 +657,7 @@ def save_session_results(
 
     db_url = settings.database_url
     inserted = 0
+    _CALM_LINK_WINDOW_S = 120
 
     with psycopg.connect(db_url) as conn:
         with conn.cursor() as cur:
@@ -686,7 +687,8 @@ def save_session_results(
             cur.execute(
                 "INSERT INTO health_samples "
                 "(user_id, sample_type, start_time, value, unit, source, payload) "
-                "VALUES (%s, %s, %s::timestamptz, %s, %s, %s, %s::jsonb)",
+                "VALUES (%s, %s, %s::timestamptz, %s, %s, %s, %s::jsonb) "
+                "RETURNING id",
                 (
                     user_id,
                     "calm_score_session",
@@ -697,9 +699,42 @@ def save_session_results(
                     json.dumps(timeseries_payload),
                 ),
             )
+            calm_row_id = cur.fetchone()[0]
             inserted += 1
 
-            # 2. Save cross-session baseline for future seeding
+            # 2. Backfill: link this calm_score_session to a matching mindfulness_session
+            summary_dict = timeseries_payload["summary"]
+            cur.execute(
+                """
+                UPDATE mindfulness_sessions ms
+                SET calm_score_ref = %s,
+                    calm_summary = %s::jsonb
+                WHERE ms.id = (
+                    SELECT id
+                    FROM mindfulness_sessions
+                    WHERE user_id = %s
+                      AND ABS(EXTRACT(EPOCH FROM start_time - %s::timestamptz)) < %s
+                      AND calm_score_ref IS NULL
+                    ORDER BY ABS(EXTRACT(EPOCH FROM start_time - %s::timestamptz))
+                    LIMIT 1
+                )
+                """,
+                (
+                    calm_row_id,
+                    json.dumps(summary_dict),
+                    user_id,
+                    session_start_time,
+                    _CALM_LINK_WINDOW_S,
+                    session_start_time,
+                ),
+            )
+            if cur.rowcount > 0:
+                logger.info(
+                    "Linked calm_score_session id=%d to mindfulness_session for user=%s",
+                    calm_row_id, user_id[:12],
+                )
+
+            # 3. Save cross-session baseline for future seeding
             baseline_payload = {
                 "hr": round(summary.hr_baseline, 1),
                 "si": round(

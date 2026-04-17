@@ -106,16 +106,21 @@ async def record_session(body: SessionIn):
 
     # Filter out non-beat-to-beat intervals (>2000ms = inter-sample timestamps, not RR)
     valid_rr = [v for v in all_rr_vals if 200 <= v <= 2000]
-    session_hrv = _compute_hrv_from_rr(valid_rr) if valid_rr else _compute_hrv_from_rr(all_rr_vals)
+    session_hrv = _compute_hrv_from_rr(valid_rr) if valid_rr else None
 
     # Also filter beginning/ending individually for proper HRV
-    if beginning_hrv and beginning_rr_vals and any(v > 2000 for v in beginning_rr_vals):
-        filtered_b = [v for v in beginning_rr_vals if 200 <= v <= 2000]
-        beginning_hrv = _compute_hrv_from_rr(filtered_b) if filtered_b else beginning_hrv
-    if ending_hrv and ending_rr_vals and any(v > 2000 for v in ending_rr_vals):
-        filtered_e = [v for v in ending_rr_vals if 200 <= v <= 2000]
-        ending_hrv = _compute_hrv_from_rr(filtered_e) if filtered_e else ending_hrv
+    filtered_b = [v for v in beginning_rr_vals if 200 <= v <= 2000]
+    filtered_e = [v for v in ending_rr_vals if 200 <= v <= 2000]
+    if filtered_b:
+        beginning_hrv = _compute_hrv_from_rr(filtered_b)
+    elif not valid_rr:
+        beginning_hrv = None
+    if filtered_e:
+        ending_hrv = _compute_hrv_from_rr(filtered_e)
+    elif not valid_rr:
+        ending_hrv = None
     # Recompute delta with filtered data
+    hrv_delta = None
     if beginning_hrv and ending_hrv:
         hrv_delta = _compute_delta(beginning_hrv, ending_hrv)
 

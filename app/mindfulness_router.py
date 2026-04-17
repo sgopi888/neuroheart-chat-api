@@ -37,6 +37,7 @@ class SessionIn(BaseModel):
 
 
 from app.hrv_utils import compute_hrv_from_rr as _compute_hrv_from_rr
+from app.hrv_bpm_per_min import process_bpm_session, save_session_results, load_cross_session_baseline
 
 _CALM_LINK_WINDOW_S = 120  # seconds tolerance for matching calm_score_session
 
@@ -104,10 +105,33 @@ async def record_session(body: SessionIn):
     all_rr_vals = beginning_rr_vals + ending_rr_vals
     session_hrv = _compute_hrv_from_rr(all_rr_vals)
 
+    # Run calm-score pipeline inline on the RR intervals
+    calm_ref = None
+    calm_summary = None
+    rr_samples = [{"rr_interval_ms": v} for v in all_rr_vals]
+    if len(rr_samples) >= 30:
+        try:
+            cross_bl = load_cross_session_baseline(body.user_id)
+            snapshots, summary = process_bpm_session(rr_samples, cross_bl)
+            if snapshots:
+                saved = save_session_results(body.user_id, body.start_time, snapshots, summary)
+                logger.info(
+                    "Mindfulness calm pipeline: %d snapshots, avg_calm=%.1f, saved=%d",
+                    len(snapshots), summary.avg_calm_score, saved,
+                )
+                from dataclasses import asdict
+                calm_summary = asdict(summary)
+                for k, v in calm_summary.items():
+                    if isinstance(v, float):
+                        calm_summary[k] = round(v, 2)
+        except Exception:
+            logger.exception("Mindfulness calm pipeline failed for user=%s", body.user_id[:12])
+
     with psycopg.connect(settings.database_url_psycopg) as conn:
         with conn.cursor() as cur:
-            # Try to link to an existing calm_score_session
-            calm_ref, calm_summary = _try_link_calm(cur, body.user_id, body.start_time)
+            # If we didn't compute calm inline, try to link to an existing calm_score_session
+            if not calm_summary:
+                calm_ref, calm_summary = _try_link_calm(cur, body.user_id, body.start_time)
 
             cur.execute(
                 """

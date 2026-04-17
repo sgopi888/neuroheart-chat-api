@@ -134,7 +134,7 @@ async def ingest_health_data(body: IngestRequest):
                 bpm_list = (s.payload.get("rr_intervals")
                             or s.payload.get("beat_to_beat_bpm")
                             or [])
-                if len(bpm_list) < 60:
+                if len(bpm_list) < 30:
                     logger.info("Skipping BPM pipeline: only %d samples", len(bpm_list))
                     continue
                 try:

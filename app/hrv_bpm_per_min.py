@@ -41,7 +41,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 # ── Constants (from parameter cheat-sheet) ────────────────────────────
-FEATURE_WINDOW_S   = 60     # seconds of data per feature computation
+FEATURE_WINDOW_S   = 30     # seconds of data per feature computation
 UPDATE_CADENCE_S   = 5      # compute every 5 s
 RESAMPLE_HZ        = 1      # uniform 1 Hz grid
 DETREND_LAMBDA     = 500    # smoothness-priors λ for 1 Hz

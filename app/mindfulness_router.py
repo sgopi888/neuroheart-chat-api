@@ -32,6 +32,7 @@ class SessionIn(BaseModel):
     mood: Optional[str] = None
     depth: Optional[str] = None
     source: str = "watch"
+    narration_id: Optional[str] = None
     beginning_rr: List[RRInterval] = []
     ending_rr: List[RRInterval] = []
 
@@ -157,9 +158,9 @@ async def record_session(body: SessionIn):
                 INSERT INTO mindfulness_sessions
                     (user_id, start_time, end_time, duration_minutes, mood, depth, source,
                      beginning_hrv, ending_hrv, hrv_delta,
-                     session_hrv, calm_score_ref, calm_summary)
+                     session_hrv, calm_score_ref, calm_summary, narration_id)
                 VALUES (%s, %s::timestamptz, %s::timestamptz, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s)
+                        %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -176,6 +177,7 @@ async def record_session(body: SessionIn):
                     json.dumps(session_hrv) if session_hrv else None,
                     calm_ref,
                     json.dumps(calm_summary) if calm_summary else None,
+                    body.narration_id,
                 ),
             )
             session_id = cur.fetchone()[0]
@@ -202,7 +204,7 @@ async def list_sessions(
                 """
                 SELECT id, start_time, end_time, duration_minutes, mood, depth, source,
                        beginning_hrv, ending_hrv, hrv_delta, created_at,
-                       session_hrv, calm_score_ref, calm_summary
+                       session_hrv, calm_score_ref, calm_summary, narration_id
                 FROM mindfulness_sessions
                 WHERE user_id = %s
                 ORDER BY start_time DESC
@@ -229,6 +231,7 @@ async def list_sessions(
             "session_hrv": r[11],
             "calm_score_ref": r[12],
             "calm_summary": r[13],
+            "narration_id": r[14],
         })
 
     return {"user_id": user_id, "sessions": sessions}

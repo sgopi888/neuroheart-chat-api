@@ -9,9 +9,10 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.auth import assert_user_scope, get_verified_user_uid
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -89,8 +90,12 @@ def _compute_delta(beginning: Dict, ending: Dict) -> Dict[str, Any]:
 # --- Endpoints ---
 
 @router.post("/session")
-async def record_session(body: SessionIn):
+async def record_session(
+    body: SessionIn,
+    verified_user_uid: str = Depends(get_verified_user_uid),
+):
     """Record a completed mindfulness session with pre/post HRV data."""
+    assert_user_scope(verified_user_uid, body.user_id)
 
     beginning_rr_vals = [r.rr_interval_ms for r in body.beginning_rr]
     ending_rr_vals = [r.rr_interval_ms for r in body.ending_rr]
@@ -196,8 +201,10 @@ async def record_session(body: SessionIn):
 async def list_sessions(
     user_id: str = Query(..., min_length=8),
     limit: int = Query(default=20, le=100),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ):
     """List past mindfulness sessions with HRV results."""
+    assert_user_scope(verified_user_uid, user_id)
     with psycopg.connect(settings.database_url_psycopg) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -238,7 +245,10 @@ async def list_sessions(
 
 
 @router.get("/session/{session_id}")
-async def get_session(session_id: int):
+async def get_session(
+    session_id: int,
+    verified_user_uid: str = Depends(get_verified_user_uid),
+):
     """Get a single mindfulness session with full HRV detail and calm score snapshots."""
     with psycopg.connect(settings.database_url_psycopg) as conn:
         with conn.cursor() as cur:
@@ -261,6 +271,7 @@ async def get_session(session_id: int):
 
     if not r:
         raise HTTPException(status_code=404, detail="Session not found")
+    assert_user_scope(verified_user_uid, r[1])
 
     result = {
         "id": r[0],

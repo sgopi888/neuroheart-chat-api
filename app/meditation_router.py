@@ -8,9 +8,10 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 
+from app.auth import assert_user_scope, get_verified_user_uid, require_app_token
 from app.config import settings
 from app.history_repository import (
     delete_audio_narration,
@@ -33,18 +34,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/practice", tags=["meditation"])
 
 
-def _require_app_token(x_app_token: Optional[str]) -> None:
-    if settings.app_token and x_app_token != settings.app_token:
-        raise HTTPException(status_code=403, detail="forbidden")
-
-
 @router.post("/generate-meditation", response_model=GenerateMeditationResponse)
 async def generate_meditation_endpoint(
     req: GenerateMeditationRequest,
-    x_app_token: Optional[str] = Header(default=None),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ) -> dict:
     """Generate SSML meditation script, voice narration, ambient music, and merge."""
-    _require_app_token(x_app_token)
+    assert_user_scope(verified_user_uid, req.user_uid)
 
     try:
         music_config = None
@@ -101,10 +97,10 @@ async def generate_meditation_endpoint(
 @router.post("/audio/upload", response_model=AudioUploadResponse)
 async def upload_audio(
     req: AudioUploadRequest,
-    x_app_token: Optional[str] = Header(default=None),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ) -> dict:
     """Upload merged/custom audio from frontend."""
-    _require_app_token(x_app_token)
+    assert_user_scope(verified_user_uid, req.user_uid)
 
     try:
         # Decode base64 and save to disk
@@ -144,10 +140,10 @@ async def upload_audio(
 @router.get("/audio/list", response_model=AudioListResponse)
 async def list_audio(
     user_uid: str = Query(...),
-    x_app_token: Optional[str] = Header(default=None),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ) -> dict:
     """List user's audio narrations (max 25, newest first)."""
-    _require_app_token(x_app_token)
+    assert_user_scope(verified_user_uid, user_uid)
 
     rows = list_audio_narrations(user_uid, limit=25)
     narrations = []
@@ -160,7 +156,7 @@ async def list_audio(
                 conversation_id=str(r["conversation_id"]),
                 meditation_type=r["meditation_type"],
                 audio_type=r["audio_type"],
-                audio_url=f"{settings.audio_base_url}/stream/{filename}",
+                audio_url=f"{settings.audio_base_url}/stream/{filename}?app_token={settings.app_token}",
                 duration_seconds=r.get("duration_seconds"),
                 title=r.get("title"),
                 metadata=r.get("metadata"),
@@ -171,8 +167,13 @@ async def list_audio(
 
 
 @router.get("/audio/stream/{filename}")
-async def stream_audio(filename: str):
+async def stream_audio(
+    filename: str,
+    app_token: Optional[str] = Query(default=None),
+    x_app_token: Optional[str] = Header(default=None),
+):
     """Stream an audio file for iOS AVPlayer playback."""
+    require_app_token(x_app_token or app_token)
     # Sanitize filename to prevent directory traversal
     safe_name = os.path.basename(filename)
     path = os.path.join(settings.audio_storage_dir, safe_name)
@@ -187,10 +188,10 @@ async def stream_audio(filename: str):
 async def delete_audio(
     narration_id: str,
     user_uid: str = Query(...),
-    x_app_token: Optional[str] = Header(default=None),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ) -> dict:
     """Delete an audio narration and its file."""
-    _require_app_token(x_app_token)
+    assert_user_scope(verified_user_uid, user_uid)
 
     file_path = delete_audio_narration(narration_id, user_uid)
     if file_path is None:

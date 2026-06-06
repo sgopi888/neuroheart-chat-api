@@ -15,12 +15,26 @@ import os
 from typing import Any, Dict, List, Optional
 
 import psycopg
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set")
+APP_TOKEN = os.environ.get("APP_TOKEN", "").strip()
+
+
+def _require_app_token(x_app_token: Optional[str]) -> None:
+    if not APP_TOKEN:
+        logger.error("APP_TOKEN is not configured; refusing request")
+        raise HTTPException(status_code=500, detail="app_token_not_configured")
+    if x_app_token != APP_TOKEN:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+def _assert_user_id(user_id: str) -> None:
+    if not (user_id or "").strip():
+        raise HTTPException(status_code=400, detail="missing_user_id")
 
 app = FastAPI(title="NeuroHeart Ingest API", version="2.0")
 logger = logging.getLogger(__name__)
@@ -150,7 +164,9 @@ def health():
 
 
 @app.post("/v1/register")
-def register(body: RegisterIn):
+def register(body: RegisterIn, x_app_token: Optional[str] = Header(default=None)):
+    _require_app_token(x_app_token)
+    _assert_user_id(body.user_id)
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -165,7 +181,9 @@ def register(body: RegisterIn):
 
 
 @app.post("/v1/ingest")
-def ingest(body: IngestIn):
+def ingest(body: IngestIn, x_app_token: Optional[str] = Header(default=None)):
+    _require_app_token(x_app_token)
+    _assert_user_id(body.user_id)
     # --- Validation ---
     if not body.samples:
         raise HTTPException(status_code=400, detail="samples is empty")
@@ -347,7 +365,9 @@ def ingest(body: IngestIn):
 
 
 @app.get("/v1/summary")
-def summary(user_id: str):
+def summary(user_id: str, x_app_token: Optional[str] = Header(default=None)):
+    _require_app_token(x_app_token)
+    _assert_user_id(user_id)
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -374,7 +394,9 @@ def summary(user_id: str):
 
 
 @app.get("/v1/latest")
-def latest(user_id: str):
+def latest(user_id: str, x_app_token: Optional[str] = Header(default=None)):
+    _require_app_token(x_app_token)
+    _assert_user_id(user_id)
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -401,8 +423,14 @@ def latest(user_id: str):
 
 
 @app.post("/v1/cleanup")
-def cleanup(user_id: str = Query(...), days: int = Query(default=365)):
+def cleanup(
+    user_id: str = Query(...),
+    days: int = Query(default=365),
+    x_app_token: Optional[str] = Header(default=None),
+):
     """Delete samples older than N days for a user."""
+    _require_app_token(x_app_token)
+    _assert_user_id(user_id)
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(

@@ -4,10 +4,10 @@ import asyncio
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth import assert_user_scope, get_verified_user_uid
 from app.chat_service import chat_once
-from app.config import settings
 from app.history_repository import (
     create_conversation,
     fetch_history,
@@ -16,6 +16,7 @@ from app.history_repository import (
 )
 from app.meditation_service import generate_meditation
 from app.rate_limit import allow
+from app.safety import EMERGENCY_RESPONSE, detect_emergency
 from app.schemas import (
     ChatRequest,
     ChatResponse,
@@ -30,18 +31,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/chat", tags=["chat"])
 
 
-def _require_app_token(x_app_token: Optional[str]) -> None:
-    """Reject requests with a missing or invalid app token."""
-    if settings.app_token and x_app_token != settings.app_token:
-        raise HTTPException(status_code=403, detail="forbidden")
-
-
 @router.post("/conversations", response_model=CreateConversationResponse)
 def create_conv(
     req: CreateConversationRequest,
-    x_app_token: Optional[str] = Header(default=None),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ) -> dict:
-    _require_app_token(x_app_token)
+    assert_user_scope(verified_user_uid, req.user_uid)
     try:
         return create_conversation(req.user_uid, req.title)
     except Exception:
@@ -51,9 +46,9 @@ def create_conv(
 @router.get("/conversations", response_model=ListConversationsResponse)
 def list_conv(
     user_uid: str,
-    x_app_token: Optional[str] = Header(default=None),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ) -> dict:
-    _require_app_token(x_app_token)
+    assert_user_scope(verified_user_uid, user_uid)
     items = list_conversations(user_uid)
     return {"conversations": items}
 
@@ -64,9 +59,9 @@ def history(
     conversation_id: str,
     limit: int = 50,
     before_id: Optional[int] = None,
-    x_app_token: Optional[str] = Header(default=None),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ) -> dict:
-    _require_app_token(x_app_token)
+    assert_user_scope(verified_user_uid, user_uid)
     try:
         msgs = fetch_history(user_uid, conversation_id, limit=limit, before_id=before_id)
         return {"conversation_id": conversation_id, "messages": msgs}
@@ -122,12 +117,50 @@ async def _generate_meditation_background(
 @router.post("", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
-    x_app_token: Optional[str] = Header(default=None),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ) -> dict:
-    _require_app_token(x_app_token)
+    assert_user_scope(verified_user_uid, req.user_uid)
 
     if not allow(req.user_uid):
         raise HTTPException(status_code=429, detail="rate_limited")
+
+    # Safety guardrail: in a clear crisis / medical emergency, route the user to
+    # real help instead of generating wellness coaching content. Both the user
+    # turn and the safety reply are persisted so the conversation stays coherent.
+    if detect_emergency(req.message):
+        logger.warning(
+            "Emergency pattern detected — returning safety response (user_uid=%s)",
+            req.user_uid[:12],
+        )
+        try:
+            insert_message(
+                user_uid=req.user_uid,
+                conversation_id=req.conversation_id,
+                role="user",
+                content=req.message,
+            )
+            insert_message(
+                user_uid=req.user_uid,
+                conversation_id=req.conversation_id,
+                role="assistant",
+                content=EMERGENCY_RESPONSE,
+                metadata={"type": "safety_emergency"},
+            )
+        except Exception as exc:  # persistence is best-effort here
+            logger.warning("Failed to persist emergency turn: %s", exc)
+        return {
+            "conversation_id": req.conversation_id,
+            "reply": EMERGENCY_RESPONSE,
+            "calendar_change": False,
+            "calendar_command": None,
+            "used_context": False,
+            "hrv_range": req.hrv_range,
+            "rag_k": 0,
+            "generate_meditation": False,
+            "meditation_audio_url": None,
+            "meditation_title": None,
+            "meditation_session_id": None,
+        }
 
     try:
         out = await chat_once(

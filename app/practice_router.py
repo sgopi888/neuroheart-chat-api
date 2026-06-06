@@ -4,10 +4,10 @@ import datetime
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth import assert_user_scope, get_verified_user_uid
 from app.chat_service import generate_practice_script
-from app.config import settings
 from app.schemas import PracticeRequest, PracticeResponse
 
 logger = logging.getLogger(__name__)
@@ -15,17 +15,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/practice", tags=["practice"])
 
 
-def _require_app_token(x_app_token: Optional[str]) -> None:
-    if settings.app_token and x_app_token != settings.app_token:
-        raise HTTPException(status_code=403, detail="forbidden")
-
-
 @router.post("/generate", response_model=PracticeResponse)
 async def generate_practice(
     req: PracticeRequest,
-    x_app_token: Optional[str] = Header(default=None),
+    verified_user_uid: str = Depends(get_verified_user_uid),
 ) -> dict:
-    _require_app_token(x_app_token)
+    assert_user_scope(verified_user_uid, req.user_uid)
 
     try:
         script = await generate_practice_script(

@@ -5,9 +5,10 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
+from app.auth import assert_user_scope, get_verified_user_uid
 from app.config import settings
 from app.hrv_bpm_per_min import process_bpm_session, save_session_results, load_cross_session_baseline
 
@@ -70,7 +71,11 @@ def _extract_rr_from_bpm(payload: Dict[str, Any]) -> List[float]:
 # --- Endpoints ---
 
 @router.post("/ingest")
-async def ingest_health_data(body: IngestRequest):
+async def ingest_health_data(
+    body: IngestRequest,
+    verified_user_uid: str = Depends(get_verified_user_uid),
+):
+    assert_user_scope(verified_user_uid, body.user_id)
     if not body.samples:
         raise HTTPException(status_code=400, detail="Samples list is empty")
 

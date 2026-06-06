@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from app.account_deletion import delete_account
 from app.auth import verify_apple_token
 from app.config import settings
 from app.db import get_engine
@@ -55,7 +56,30 @@ class UpdateProfileRequest(BaseModel):
     age_range: Optional[str] = None
 
 
+class DeleteAccountResponse(BaseModel):
+    status: str
+    user_uid: str
+
+
 # ---- Helpers ----
+
+
+def _verify_identity(
+    x_apple_id_token: Optional[str],
+    x_app_token: Optional[str],
+    user_uid: Optional[str],
+) -> str:
+    """Resolve the authenticated user_uid from headers.
+
+    Prefers the Apple ID token; falls back to the legacy app-token + user_uid
+    pair. Raises 401 if neither is valid.
+    """
+    if x_apple_id_token:
+        claims = verify_apple_token(x_apple_id_token)
+        return claims["sub"]
+    if settings.app_token and x_app_token == settings.app_token and user_uid:
+        return user_uid  # legacy fallback
+    raise HTTPException(status_code=401, detail="unauthorized")
 
 def _get_user(user_uid: str) -> Optional[dict]:
     eng = get_engine()
@@ -163,14 +187,7 @@ def get_profile(
     user_uid: Optional[str] = None,
 ) -> dict:
     """Get the authenticated user's profile."""
-    # Verify identity
-    if x_apple_id_token:
-        claims = verify_apple_token(x_apple_id_token)
-        verified_uid = claims["sub"]
-    elif settings.app_token and x_app_token == settings.app_token and user_uid:
-        verified_uid = user_uid  # legacy fallback
-    else:
-        raise HTTPException(status_code=401, detail="unauthorized")
+    verified_uid = _verify_identity(x_apple_id_token, x_app_token, user_uid)
 
     user = _get_user(verified_uid)
     if not user:
@@ -185,6 +202,33 @@ def get_profile(
     }
 
 
+@router.delete("/me", response_model=DeleteAccountResponse)
+def delete_me(
+    x_apple_id_token: Optional[str] = Header(default=None),
+    x_app_token: Optional[str] = Header(default=None),
+    user_uid: Optional[str] = None,
+) -> dict:
+    """Permanently delete the authenticated user's account and all data.
+
+    Apple remediation Phase 5. Purges profile, chat history, conversations,
+    summaries, audio narrations, calendar context, cross-chat profile, HRV /
+    heart-rate samples, and mindfulness sessions from active systems, and writes
+    a minimal content-free security-retention record (see app/account_deletion).
+
+    The endpoint is idempotent: deleting an already-deleted account returns
+    success without error.
+    """
+    verified_uid = _verify_identity(x_apple_id_token, x_app_token, user_uid)
+
+    try:
+        result = delete_account(verified_uid, reason="user_requested")
+    except Exception as exc:
+        logger.exception("account deletion failed for user_uid=%s: %s", verified_uid[:12], exc)
+        raise HTTPException(status_code=500, detail="deletion_failed")
+
+    return {"status": result["status"], "user_uid": verified_uid}
+
+
 @router.put("/me", response_model=ProfileResponse)
 def update_profile(
     req: UpdateProfileRequest,
@@ -193,13 +237,7 @@ def update_profile(
     user_uid: Optional[str] = None,
 ) -> dict:
     """Update the authenticated user's profile."""
-    if x_apple_id_token:
-        claims = verify_apple_token(x_apple_id_token)
-        verified_uid = claims["sub"]
-    elif settings.app_token and x_app_token == settings.app_token and user_uid:
-        verified_uid = user_uid
-    else:
-        raise HTTPException(status_code=401, detail="unauthorized")
+    verified_uid = _verify_identity(x_apple_id_token, x_app_token, user_uid)
 
     _create_or_update_user(verified_uid, None, req.name, req.age_range)
     user = _get_user(verified_uid)

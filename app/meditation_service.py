@@ -12,6 +12,7 @@ import os
 import shutil
 import uuid
 from typing import Dict, Optional
+from urllib.parse import urlparse
 
 from app.chat_service import chat_once
 from app.config import settings
@@ -28,6 +29,17 @@ from app.prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+_ALLOWED_HF_HOST_SUFFIXES = ("huggingface.co", "hf.space")
+
+
+def _is_allowed_hf_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and any(
+        host == suffix or host.endswith("." + suffix)
+        for suffix in _ALLOWED_HF_HOST_SUFFIXES
+    )
 
 
 def _meditation_type(duration: int) -> str:
@@ -126,8 +138,11 @@ async def _generate_voice(script_text: str, session_id: str) -> str | None:
         elif isinstance(result, (list, tuple)) and len(result) > 0:
             item = result[0]
             if isinstance(item, dict) and "url" in item:
-                # Download from URL
+                # Download from HuggingFace/Space URLs only.
                 import httpx
+
+                if not _is_allowed_hf_url(item["url"]):
+                    raise RuntimeError("voice download URL is not allowed")
 
                 resp = httpx.get(
                     item["url"],
@@ -183,8 +198,9 @@ async def _generate_narration_via_comfy(
         import httpx
 
         url = f"{settings.comfy_tts_url.rstrip('/')}/narration"
+        headers = {"x-app-token": settings.app_token} if settings.app_token else None
         async with httpx.AsyncClient(timeout=settings.comfy_tts_timeout) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             audio_bytes = resp.content
 
@@ -421,7 +437,7 @@ async def generate_meditation(
     # Build streaming URL
     filename = os.path.basename(merged_path)
     import time
-    audio_url = f"{settings.audio_base_url}/stream/{filename}?ts={int(time.time())}"
+    audio_url = f"{settings.audio_base_url}/stream/{filename}?ts={int(time.time())}&app_token={settings.app_token}"
 
     return {
         "session_id": session_id,

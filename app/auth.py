@@ -119,6 +119,31 @@ def verify_apple_token(id_token: str) -> dict:
     return claims
 
 
+def require_app_token(x_app_token: Optional[str]) -> None:
+    """Validate the legacy app token and fail closed if it is not configured."""
+    expected = (settings.app_token or "").strip()
+    if not expected:
+        logger.error("APP_TOKEN is not configured; refusing legacy app-token request")
+        raise HTTPException(status_code=500, detail="app_token_not_configured")
+    if x_app_token != expected:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+def assert_user_scope(verified_user_uid: str, requested_user_uid: str) -> None:
+    """Reject cross-user access when a per-user Apple token is supplied.
+
+    Legacy x-app-token callers return an empty verified_user_uid because the
+    current production iOS app does not send a per-user bearer token. That keeps
+    existing clients working while still enforcing ownership for Apple-token
+    authenticated callers.
+    """
+    requested = (requested_user_uid or "").strip()
+    if not requested:
+        raise HTTPException(status_code=400, detail="missing_user_uid")
+    if verified_user_uid and requested != verified_user_uid:
+        raise HTTPException(status_code=403, detail="user_mismatch")
+
+
 def get_verified_user_uid(
     x_apple_id_token: Optional[str] = Header(default=None),
     x_app_token: Optional[str] = Header(default=None),
@@ -128,14 +153,11 @@ def get_verified_user_uid(
 
     Priority:
     1. Apple id_token → verify with Apple → extract 'sub' claim
-    2. Fallback to app_token + client-asserted user_uid (legacy, for dev/testing)
+    2. Fallback to app_token + client-asserted user_uid (legacy, current iOS)
     """
     if x_apple_id_token:
         claims = verify_apple_token(x_apple_id_token)
         return claims["sub"]
 
-    # Legacy fallback: app_token auth (no user verification)
-    if settings.app_token and x_app_token == settings.app_token:
-        return ""  # caller must provide user_uid in body/query
-
-    raise HTTPException(status_code=401, detail="unauthorized")
+    require_app_token(x_app_token)
+    return ""  # legacy caller must provide user_uid/user_id in body/query

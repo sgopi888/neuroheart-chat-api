@@ -8,7 +8,7 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.auth import assert_user_scope, get_verified_user_uid, require_app_token
@@ -19,14 +19,23 @@ from app.history_repository import (
     insert_message,
     list_audio_narrations,
 )
+from app.meditation_jobs_repository import (
+    complete_job,
+    create_job,
+    fail_job,
+    get_job,
+    mark_running,
+)
 from app.meditation_service import generate_meditation
 from app.schemas import (
     AudioListResponse,
     AudioNarrationItem,
     AudioUploadRequest,
     AudioUploadResponse,
+    GenerateMeditationJobResponse,
     GenerateMeditationRequest,
     GenerateMeditationResponse,
+    MeditationJobStatusResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,6 +101,140 @@ async def generate_meditation_endpoint(
     except Exception as exc:
         logger.exception("generate_meditation failed: %s", exc)
         raise HTTPException(status_code=500, detail="meditation_generation_failed")
+
+
+# --- Async meditation generation (job + poll) ---------------------------------
+#
+# The synchronous endpoint above blocks 1-2 minutes, so if the phone is locked or
+# the app is backgrounded mid-request the result is lost. These two endpoints let
+# the client start generation, get a job_id immediately, and poll for the result,
+# which survives lock / app-kill / reboot because the work runs server-side.
+
+
+async def _run_meditation_job(
+    job_id: str,
+    user_uid: str,
+    conversation_id: str,
+    mood: str,
+    depth: Optional[str],
+    duration: int,
+    session_type: str,
+    music_config: Optional[dict],
+) -> None:
+    """Background worker: runs the same generation as the sync endpoint, then
+    records the outcome on the job row. Reuses generate_meditation(), which also
+    persists the meditation_link chat message + audio narration on success."""
+    mark_running(job_id)
+    try:
+        result = await generate_meditation(
+            user_uid=user_uid,
+            conversation_id=conversation_id,
+            mood=mood,
+            depth=depth,
+            duration=duration,
+            session_type=session_type,
+            music_config=music_config,
+        )
+
+        audio_url = result.get("audio_url")
+        title = result.get("title", "Meditation")
+
+        # Mirror the sync endpoint: persist a meditation link message so it shows
+        # up on history reload even if the client never polls.
+        if audio_url:
+            med_message = (
+                f"🧘 Your meditation is ready: \"{title}\"\n\n"
+                f"Tap to play in the Practice tab.\n"
+                f"[MEDITATION_AUDIO:{audio_url}:{title}]"
+            )
+            try:
+                insert_message(
+                    user_uid=user_uid,
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=med_message,
+                    metadata={
+                        "type": "meditation_link",
+                        "session_id": result.get("session_id"),
+                        "audio_url": audio_url,
+                        "title": title,
+                    },
+                )
+            except Exception:
+                logger.warning("Could not save meditation message to conversation")
+
+        complete_job(
+            job_id=job_id,
+            session_id=result.get("session_id"),
+            title=title,
+            audio_url=audio_url,
+            meditation_type=result.get("meditation_type"),
+        )
+    except Exception as exc:
+        logger.exception("async meditation job %s failed: %s", job_id, exc)
+        fail_job(job_id, str(exc))
+
+
+@router.post("/generate-meditation-async", response_model=GenerateMeditationJobResponse)
+async def generate_meditation_async(
+    req: GenerateMeditationRequest,
+    background_tasks: BackgroundTasks,
+    verified_user_uid: str = Depends(get_verified_user_uid),
+) -> dict:
+    """Start meditation generation and return a job_id immediately."""
+    assert_user_scope(verified_user_uid, req.user_uid)
+
+    music_config = None
+    if req.music_config:
+        music_config = req.music_config.model_dump(exclude_none=True)
+
+    job_id = create_job(
+        user_uid=req.user_uid,
+        conversation_id=req.conversation_id,
+        mood=req.mood,
+        depth=req.depth,
+        duration=req.duration,
+        session_type=req.session_type,
+        music_config=music_config,
+    )
+
+    background_tasks.add_task(
+        _run_meditation_job,
+        job_id,
+        req.user_uid,
+        req.conversation_id,
+        req.mood,
+        req.depth,
+        req.duration,
+        req.session_type,
+        music_config,
+    )
+
+    return {"job_id": job_id, "status": "pending"}
+
+
+@router.get("/job/{job_id}", response_model=MeditationJobStatusResponse)
+async def get_meditation_job(
+    job_id: str,
+    user_uid: str = Query(...),
+    verified_user_uid: str = Depends(get_verified_user_uid),
+) -> dict:
+    """Poll the status/result of an async meditation job."""
+    assert_user_scope(verified_user_uid, user_uid)
+
+    job = get_job(job_id, user_uid)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job_not_found")
+
+    return {
+        "job_id": str(job["id"]),
+        "status": job["status"],
+        "session_id": str(job["session_id"]) if job.get("session_id") else None,
+        "title": job.get("title"),
+        "audio_url": job.get("audio_url"),
+        "meditation_type": job.get("meditation_type"),
+        "error": job.get("error"),
+    }
 
 
 @router.post("/audio/upload", response_model=AudioUploadResponse)

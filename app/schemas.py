@@ -100,6 +100,25 @@ class GenerateMeditationResponse(BaseModel):
     meditation_type: str  # 'short' | 'medium' | 'deep'
 
 
+# --- Async meditation generation (job + poll) ---
+
+class GenerateMeditationJobResponse(BaseModel):
+    """Returned immediately from the async endpoint; generation continues server-side."""
+    job_id: str
+    status: str  # 'pending'
+
+
+class MeditationJobStatusResponse(BaseModel):
+    """Returned when polling GET /v1/practice/job/{job_id}."""
+    job_id: str
+    status: str  # 'pending' | 'running' | 'ready' | 'failed'
+    session_id: Optional[str] = None
+    title: Optional[str] = None
+    audio_url: Optional[str] = None
+    meditation_type: Optional[str] = None
+    error: Optional[str] = None
+
+
 class AudioUploadRequest(BaseModel):
     user_uid: str
     session_id: str
